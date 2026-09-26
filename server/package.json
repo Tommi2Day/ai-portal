@@ -1,0 +1,49 @@
+{
+  "name": "ai-portal-server",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "db:generate": "drizzle-kit generate",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^5.0.97",
+    "@ai-sdk/anthropic": "^4.0.65",
+    "@ai-sdk/openai-compatible": "^3.0.57",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "ai": "^7.0.116",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "drizzle-orm": "^0.45.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "html-to-text": "^10.0.1",
+    "jsonwebtoken": "^9.0.3",
+    "jszip": "^3.10.2",
+    "ldapts": "^9.2.0",
+    "mammoth": "^1.12.3",
+    "multer": "^2.4.0",
+    "openid-client": "^5.7.1",
+    "pg": "^8.23.0",
+    "pino": "^10.3.1",
+    "unpdf": "^1.8.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/html-to-text": "^9.0.4",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.6.3",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "5.9"
+  },
+  "type": "module",
+  "private": true
+}

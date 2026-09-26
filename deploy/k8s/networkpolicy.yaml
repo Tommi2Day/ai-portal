@@ -1,0 +1,15 @@
+# Eingehend nur vom Ingress-Controller. Ausgehend offen (KI-Anbieter, MCP-Server, LDAP, IdP),
+# bei Bedarf auf konkrete Ziele einschränken.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-portal
+spec:
+  podSelector:
+    matchLabels: { app: ai-portal }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+      ports: [{ port: 8080 }]

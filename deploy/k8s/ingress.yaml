@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-portal
+  annotations:
+    # Streaming-Antworten nicht puffern, lange Antworten zulassen, Uploads bis 25 MB
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-body-size: 25m
+    cert-manager.io/cluster-issuer: firma-ca
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [ai.firma.local]
+      secretName: ai-portal-tls
+  rules:
+    - host: ai.firma.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: ai-portal, port: { name: http } }

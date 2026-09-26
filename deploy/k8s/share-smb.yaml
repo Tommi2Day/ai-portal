@@ -1,0 +1,27 @@
+# Optional: Windows-/SMB-Freigabe read-only für die Wissensdatenbank.
+# Benötigt den SMB-CSI-Treiber: https://github.com/kubernetes-csi/csi-driver-smb
+# Zugangsdaten: kubectl -n ai-portal create secret generic smb-creds --from-literal=username=svc-aiportal --from-literal=password=... [--from-literal=domain=FIRMA]
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ai-portal-it-share
+spec:
+  capacity: { storage: 100Gi }
+  accessModes: [ReadOnlyMany]
+  persistentVolumeReclaimPolicy: Retain
+  mountOptions: [dir_mode=0555, file_mode=0444, uid=1000, gid=1000, vers=3.0]
+  csi:
+    driver: smb.csi.k8s.io
+    volumeHandle: fileserver/it-handbuch
+    volumeAttributes: { source: //fileserver.firma.local/it-handbuch }
+    nodeStageSecretRef: { name: smb-creds, namespace: ai-portal }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: it-share
+spec:
+  accessModes: [ReadOnlyMany]
+  resources: { requests: { storage: 100Gi } }
+  volumeName: ai-portal-it-share
+  storageClassName: ""

@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-portal
+  labels: { app: ai-portal }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: ai-portal }
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels: { app: ai-portal }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: app
+          image: ai-portal
+          ports: [{ name: http, containerPort: 8080 }]
+          envFrom:
+            - configMapRef: { name: ai-portal }
+            - secretRef: { name: ai-portal }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            # Wissensdatenbank: Dateifreigabe read-only einhängen (siehe share-smb.yaml)
+            # - { name: it-share, mountPath: /data/shares/it, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        # - name: it-share
+        #   persistentVolumeClaim: { claimName: it-share, readOnly: true }

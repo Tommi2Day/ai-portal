@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-portal
+data:
+  PUBLIC_URL: https://ai.firma.local
+  COOKIE_SECURE: "true"
+  LOG_LEVEL: info
+  UPLOAD_MAX_MB: "20"
+  MAX_TOOL_STEPS: "8"
+  AUDIT_LOG_PROMPTS: "false"
+  MCP_ALLOW_PRIVATE_NETWORKS: "true"
+  AUTH_LOCAL_ENABLED: "true"
+  LDAP_ENABLED: "false"
+  LDAP_URL: ldaps://dc01.firma.local:636
+  LDAP_SEARCH_BASE: OU=Benutzer,DC=firma,DC=local
+  LDAP_SEARCH_FILTER: (sAMAccountName={{username}})
+  LDAP_USER_GROUP_DN: CN=AI-Portal-Users,OU=Gruppen,DC=firma,DC=local
+  LDAP_ADMIN_GROUP_DN: CN=AI-Portal-Admins,OU=Gruppen,DC=firma,DC=local
+  LDAP_GROUP_SEARCH_BASE: OU=Gruppen,DC=firma,DC=local
+  OIDC_GROUP_CLAIM: groups
+  KNOWLEDGE_ENABLED: "true"
+  KNOWLEDGE_WORKER: "true"
+  KNOWLEDGE_FS_ROOT: /data/shares
+  KNOWLEDGE_MAX_FILE_MB: "50"
+  OIDC_ENABLED: "false"
+  OIDC_ISSUER: https://login.microsoftonline.com/<tenant-id>/v2.0
+  OIDC_DISPLAY_NAME: Microsoft
+  OIDC_ROLE_CLAIM: roles
+  OIDC_USER_VALUE: AiPortal.User
+  OIDC_ADMIN_VALUE: AiPortal.Admin

@@ -1,0 +1,1 @@
+ALTER TABLE "knowledge_documents" DROP COLUMN "data";

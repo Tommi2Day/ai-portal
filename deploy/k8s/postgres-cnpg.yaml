@@ -1,0 +1,16 @@
+# Benötigt den CloudNativePG-Operator (https://cloudnative-pg.io).
+# Erzeugt Service "ai-portal-db-rw" und Secret "ai-portal-db-app" (Zugangsdaten).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: ai-portal-db
+spec:
+  instances: 2
+  storage: { size: 20Gi }
+  bootstrap:
+    initdb:
+      database: aiportal
+      owner: aiportal
+      # Wissensdatenbank: pgvector (in den CloudNativePG-Standard-Images enthalten; bei eigenem Image prüfen)
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector

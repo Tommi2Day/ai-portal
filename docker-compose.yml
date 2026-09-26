@@ -1,0 +1,28 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16   # PostgreSQL 16 mit pgvector-Erweiterung
+    environment:
+      POSTGRES_USER: aiportal
+      POSTGRES_PASSWORD: aiportal
+      POSTGRES_DB: aiportal
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiportal"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: .
+    image: ai-portal:latest
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://aiportal:aiportal@db:5432/aiportal
+    ports: ["8080:8080"]
+    volumes:
+      # Dateifreigaben für die Wissensdatenbank (read-only), z. B. per SMB/NFS auf dem Host gemountet
+      - ./shares:/data/shares:ro
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:
