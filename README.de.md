@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Tommi2Day/ai-portal/actions/workflows/ci.yml/badge.svg)](https://github.com/Tommi2Day/ai-portal/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/Tommi2Day/ai-portal/graph/badge.svg)](https://codecov.io/gh/Tommi2Day/ai-portal)
+[![License: MIT](https://img.shields.io/github/license/tommi2day/ai-portal)](LICENSE)
 
 Die Oberfläche ist auf **Deutsch und Englisch** verfügbar (Umschalter DE | EN oben rechts und auf der Anmeldeseite; Standard ist die Browsersprache).
 
@@ -233,3 +234,7 @@ Erfasst: An-/Abmeldung (auch fehlgeschlagen), Benutzer-, Anbieter-, Modell- und 
 | GET | `/api/admin/audit` | Audit-Log, `?format=csv` |
 
 Schreibende Requests brauchen den Header `X-Requested-With: ai-portal` (CSRF-Schutz).
+
+## Lizenz
+
+[MIT](LICENSE). Abhängigkeiten von Drittanbietern behalten ihre eigenen Lizenzen.

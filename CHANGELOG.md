@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- MIT license (`LICENSE`, `license` in both `package.json` files, badge and license section in the READMEs).
 - Web UI branding: `PORTAL_NAME` (name in the top bar, on the sign-in page and in the browser tab), `PORTAL_LOGO`
   (logo file embedded as data URI, or an http(s) URL that is added to the CSP `img-src`) and `PORTAL_THEME_CSS`
   (stylesheet loaded after the built-in one, overrides the color/font variables in `web/src/styles.css`). The server

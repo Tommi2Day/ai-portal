@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Tommi2Day/ai-portal/actions/workflows/ci.yml/badge.svg)](https://github.com/Tommi2Day/ai-portal/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/Tommi2Day/ai-portal/graph/badge.svg)](https://codecov.io/gh/Tommi2Day/ai-portal)
+[![License: MIT](https://img.shields.io/github/license/tommi2day/ai-portal)](LICENSE)
 
 Self-hosted web application for internal use of generative AI: a chat interface in the style of Claude or Google's AI Mode, with user management, centrally managed AI providers, per-user MCP servers, file uploads, an internal knowledge base and a complete audit log.
 
@@ -120,4 +121,4 @@ Translations: UI texts are written in German and wrapped in `t('…')`; the Engl
 
 ## License
 
-Internal project. Third-party dependencies keep their own licenses.
+[MIT](LICENSE). Third-party dependencies keep their own licenses.
