@@ -5,6 +5,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-09-27
+
+First release. The portal: chat with streaming and attachments, sign-in with local accounts, LDAP/AD and OIDC,
+centrally managed AI providers (Anthropic, AWS Bedrock, GitHub Models, OpenAI-compatible) with an approved model
+catalog, per-user MCP servers, knowledge base (uploads, file shares, Confluence, SharePoint) also exposed as MCP
+server, audit log, German and English UI, Docker Compose and Kubernetes manifests. Docker image:
+`tommi2day/ai-portal:0.0.1`.
+
 ### Added
 
 - MIT license (`LICENSE`, `license` in both `package.json` files, badge and license section in the READMEs).
@@ -47,6 +55,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Knowledge base: `chunkText` with `overlap = 0` repeated the complete previous chunk in every chunk (not reachable with
   the default overlap of 300).
 
-## [1.0.0] - 2026-09-26
-
-Initial release.
+[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.0.1...HEAD
+[0.0.1]: https://github.com/Tommi2Day/ai-portal/releases/tag/0.0.1
