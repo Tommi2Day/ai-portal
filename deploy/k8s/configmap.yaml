@@ -29,3 +29,13 @@ data:
   OIDC_ROLE_CLAIM: roles
   OIDC_USER_VALUE: AiPortal.User
   OIDC_ADMIN_VALUE: AiPortal.Admin
+  # Outgoing proxy / internal CA (optional, see docs/llm-providers.md)
+  # NODE_USE_ENV_PROXY: "1"
+  # HTTPS_PROXY: http://proxy.firma.local:3128
+  # NO_PROXY: localhost,.svc,.cluster.local,.firma.local
+  # Branding (optional); theme.css / logo from the ConfigMap "ai-portal-branding",
+  # see deployment.yaml:
+  #   kubectl -n ai-portal create configmap ai-portal-branding   #     --from-file=examples/branding/theme.css --from-file=examples/branding/logo.svg
+  # PORTAL_NAME: ACME AI Portal
+  # PORTAL_THEME_CSS: /branding/theme.css
+  # PORTAL_LOGO: /branding/logo.svg

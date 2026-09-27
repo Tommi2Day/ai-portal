@@ -6,6 +6,7 @@ import { Login } from './Login';
 import { Chat } from './Chat';
 import { McpSettings } from './McpSettings';
 import { Admin } from './Admin';
+import { Brand } from './Brand';
 
 type View = 'chat' | 'mcp' | 'admin';
 
@@ -25,7 +26,7 @@ export function App() {
   return (
     <div className="shell">
       <header className="topbar">
-        <strong className="brand">AI Portal</strong>
+        <strong><Brand /></strong>
         <nav>
           <button className={view === 'chat' ? 'active' : ''} onClick={() => setView('chat')}>{t('Chat')}</button>
           <button className={view === 'mcp' ? 'active' : ''} onClick={() => setView('mcp')}>{t('MCP-Server')}</button>

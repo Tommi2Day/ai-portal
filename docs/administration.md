@@ -15,6 +15,8 @@ Everything in this guide is done in the web UI under **Administration** (visible
 
 ## AI providers and models
 
+Details per provider type (IAM policy, base URLs, proxy, what is sent, troubleshooting): [Connecting LLM providers](llm-providers.md).
+
 **Tab “Providers & models”**
 
 1. **Add a provider** (“Add provider”):

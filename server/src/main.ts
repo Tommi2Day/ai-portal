@@ -22,6 +22,7 @@ import { startScheduler } from './knowledge/sync.js';
 import { mcpAuth, mcpHandler } from './knowledge/mcpServer.js';
 import { tokensRouter } from './routes/tokens.js';
 import rateLimit from 'express-rate-limit';
+import { loadBranding, logoOrigin, renderIndexHtml } from './branding.js';
 
 async function bootstrapAdmin() {
   const [{ n }] = await db.select({ n: count() }).from(users);
@@ -42,12 +43,15 @@ async function main() {
   await bootstrapAdmin();
   await convertLegacyAuditToEnglish();
 
+  const branding = loadBranding();
+  const logoHost = logoOrigin(branding);
+
   const app = express();
   app.set('trust proxy', 1); // behind ingress: real client IP for audit + rate limit
   app.disable('x-powered-by');
   app.use(helmet({
     contentSecurityPolicy: {
-      directives: { 'default-src': ["'self'"], 'img-src': ["'self'", 'data:', 'blob:'], 'style-src': ["'self'", "'unsafe-inline'"], 'connect-src': ["'self'"] },
+      directives: { 'default-src': ["'self'"], 'img-src': ["'self'", 'data:', 'blob:', ...(logoHost ? [logoHost] : [])], 'style-src': ["'self'", "'unsafe-inline'"], 'connect-src': ["'self'"] },
     },
   }));
   app.use(cookieParser());
@@ -77,8 +81,12 @@ async function main() {
   // Web UI (SPA)
   const staticDir = path.resolve(config.STATIC_DIR);
   if (fs.existsSync(staticDir)) {
+    // index.html with branding (name, logo, theme), rendered once at startup
+    const indexHtml = renderIndexHtml(fs.readFileSync(path.join(staticDir, 'index.html'), 'utf8'), branding);
+    const sendIndex = (_req: express.Request, res: express.Response) => { res.set('Cache-Control', 'no-cache').type('html').send(indexHtml); };
+    app.get('/index.html', sendIndex);
     app.use(express.static(staticDir, { index: false, maxAge: '1h' }));
-    app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(staticDir, 'index.html')));
+    app.get(/^(?!\/api).*/, sendIndex);
   }
 
   app.use((err: Error & { status?: number; code?: string }, req: express.Request, res: express.Response, _next: express.NextFunction) => {

@@ -4,7 +4,7 @@ import type { User } from '../db/schema.js';
 import { LoginError, upsertExternalUser } from './provision.js';
 
 /** RFC 4515 filter value escaping. */
-const escapeFilter = (s: string) => s.replace(/[\\*()\0]/g, (c) => '\\' + c.charCodeAt(0).toString(16).padStart(2, '0'));
+export const escapeFilter = (s: string) => s.replace(/[\\*()\0]/g, (c) => '\\' + c.charCodeAt(0).toString(16).padStart(2, '0'));
 
 function client() {
   return new Client({
@@ -23,7 +23,7 @@ async function isMember(c: Client, groupDn: string, userDn: string): Promise<boo
 }
 
 /** "CN=KI-Team,OU=Gruppen,DC=firma" -> "KI-Team" */
-export const cnOf = (dn: string) => /^cn=([^,]+)/i.exec(dn)?.[1]?.replace(/\\(.)/g, '$1') ?? dn;
+export const cnOf = (dn: string) => /^cn=((?:\\.|[^,\\])+)/i.exec(dn)?.[1]?.replace(/\\(.)/g, '$1') ?? dn;
 
 async function userGroups(c: Client, userDn: string, memberOf: unknown): Promise<string[]> {
   const direct = ([] as unknown[]).concat(memberOf ?? []).map(String);

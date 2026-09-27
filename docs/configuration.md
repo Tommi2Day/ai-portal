@@ -18,6 +18,66 @@ Provider credentials, AI models, knowledge collections and sources are **not** e
 | `STATIC_DIR` | `../web/dist` | Directory of the built web UI (`/app/web` in the image) |
 | `LOG_LEVEL` | `info` | pino log level (`debug`, `info`, `warn`, `error`) |
 
+## Outgoing connections
+
+Node.js settings, not validated by the portal. They apply to all HTTP calls made with `fetch` — AI providers, embeddings, MCP servers (see [Connecting LLM providers](llm-providers.md#network-proxy-and-certificates)).
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `NODE_USE_ENV_PROXY` | – | `1` makes Node.js honor `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`; without it the proxy variables are ignored |
+| `HTTPS_PROXY`, `HTTP_PROXY` | – | Proxy URL, e.g. `http://proxy.acme.local:3128` |
+| `NO_PROXY` | – | Hosts reached directly, e.g. `localhost,.acme.local,10.0.0.0/8` |
+| `NODE_EXTRA_CA_CERTS` | – | PEM file with additional CA certificates (TLS inspection, internal endpoints) |
+
+## Branding
+
+The web UI can be switched to a corporate design without rebuilding the image:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PORTAL_NAME` | `AI Portal` | Name in the top bar, on the sign-in page and in the browser tab |
+| `PORTAL_LOGO` | – | Logo shown next to the name (above it on the sign-in page). A file is embedded as data URI (`.svg`, `.png`, `.jpg`, `.gif`, `.webp`); an `http(s)://` URL is used as is and added to the CSP `img-src` (the browser must be able to reach it). |
+| `PORTAL_THEME_CSS` | – | Stylesheet injected after the built-in styles. Override the CSS variables below; any other CSS rule is allowed, too. |
+
+Both files are read once at startup; an unreadable file is logged as a warning and the built-in design is used. The design is served to everyone who opens the portal (also before sign-in), so do not put anything confidential into it.
+
+All colors are CSS variables in the `:root` block at the top of [`web/src/styles.css`](../web/src/styles.css):
+
+| Variable | Used for |
+| --- | --- |
+| `--bg`, `--bg-soft` | Page background; top-bar buttons, sidebar selection, chat bubbles, code blocks |
+| `--fg`, `--muted` | Text colors |
+| `--line` | Borders and dividers |
+| `--accent`, `--accent-fg` | Primary buttons and the text on them |
+| `--danger` | Errors, failed audit entries |
+| `--font`, `--mono`, `--radius` | Font stacks, corner radius |
+| `--logo-height`, `--header-logo-height` | Logo height on the sign-in page (40px) and in the top bar (26px) |
+
+The built-in stylesheet switches these variables in a `@media (prefers-color-scheme: dark)` block. A plain `:root { … }` in the theme overrides both modes; add your own dark-mode block if the design should have one, or set `color-scheme: light` to keep form controls light.
+
+[`examples/branding/`](../examples/branding) contains a complete example (fictional "ACME data" design: teal primary color, amber accent bar, own logo):
+
+<table>
+  <tr>
+    <td width="70%" valign="top"><b>Chat with the example theme</b><br><img src="images/branding-chat.png" alt="AI Portal chat with corporate logo and colors"></td>
+    <td width="30%" valign="top"><b>Sign-in</b><br><img src="images/branding-login.png" alt="AI Portal sign-in page with corporate logo"></td>
+  </tr>
+</table>
+
+Docker Compose mounts `BRANDING_DIR` (default `./examples/branding`) at `/branding`:
+
+```bash
+PORTAL_NAME=ACME AI Portal
+PORTAL_THEME_CSS=/branding/theme.css
+PORTAL_LOGO=/branding/logo.svg
+```
+
+In Kubernetes put the files into a ConfigMap, mount it at `/branding` (commented out in `deploy/k8s/deployment.yaml`) and set the variables in `configmap.yaml`:
+
+```bash
+kubectl -n ai-portal create configmap ai-portal-branding   --from-file=examples/branding/theme.css --from-file=examples/branding/logo.svg
+```
+
 ## Bootstrap and local sign-in
 
 | Variable | Default | Description |

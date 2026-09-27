@@ -1,0 +1,31 @@
+/*
+ * Example corporate theme for the web UI (PORTAL_THEME_CSS).
+ * Fictional "ACME data" design: petrol/teal primary color, amber accent.
+ * All variables are listed in the :root block at the top of web/src/styles.css.
+ *
+ * This stylesheet is injected after the built-in one, so a plain :root block also
+ * replaces the dark-mode colors. For a separate dark design add your own
+ * @media (prefers-color-scheme: dark) { :root { … } } block below.
+ */
+:root {
+  color-scheme: light;   /* this design has no dark variant */
+
+  --font:      "Segoe UI", Arial, Helvetica, sans-serif;
+  --radius:    4px;
+
+  --bg:        #ffffff;
+  --bg-soft:   #eef4f4;
+  --fg:        #12333a;
+  --muted:     #56707a;
+  --line:      #d5dfe1;
+  --accent:    #00857c;
+  --accent-fg: #ffffff;
+  --danger:    #b42318;
+
+  --logo-height:        44px;
+  --header-logo-height: 28px;
+}
+
+/* Additional rules are allowed, too: accent bar below the top bar */
+.topbar { border-bottom: 3px solid #f2a900; box-shadow: 0 1px 4px rgb(0 0 0 / .08); }
+button.primary { text-transform: uppercase; letter-spacing: .04em; }

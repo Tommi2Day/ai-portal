@@ -5,7 +5,10 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc",
     "db:generate": "drizzle-kit generate",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "test": "tsc -p tsconfig.test.json && vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run -c vitest.integration.config.ts"
   },
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^5.0.97",
@@ -40,9 +43,11 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^26.6.3",
     "@types/pg": "^8.23.1",
+    "@vitest/coverage-v8": "^5.0.2",
     "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
-    "typescript": "5.9"
+    "typescript": "5.9",
+    "vitest": "^5.0.2"
   },
   "type": "module",
   "private": true

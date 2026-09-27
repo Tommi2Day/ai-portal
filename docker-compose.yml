@@ -21,6 +21,8 @@ services:
     volumes:
       # Dateifreigaben für die Wissensdatenbank (read-only), z. B. per SMB/NFS auf dem Host gemountet
       - ./shares:/data/shares:ro
+      # Branding: theme.css / Logo (PORTAL_THEME_CSS, PORTAL_LOGO in .env)
+      - ${BRANDING_DIR:-./examples/branding}:/branding:ro
     depends_on:
       db: { condition: service_healthy }
 

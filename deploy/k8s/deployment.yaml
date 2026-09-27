@@ -44,8 +44,12 @@ spec:
             - { name: tmp, mountPath: /tmp }
             # Wissensdatenbank: Dateifreigabe read-only einhängen (siehe share-smb.yaml)
             # - { name: it-share, mountPath: /data/shares/it, readOnly: true }
+            # Branding: theme.css / Logo (PORTAL_THEME_CSS, PORTAL_LOGO in configmap.yaml)
+            # - { name: branding, mountPath: /branding, readOnly: true }
       volumes:
         - name: tmp
           emptyDir: {}
+        # - name: branding
+        #   configMap: { name: ai-portal-branding }
         # - name: it-share
         #   persistentVolumeClaim: { claimName: it-share, readOnly: true }

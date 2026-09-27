@@ -24,7 +24,7 @@ export function chunkText(text: string, title: string, maxChars = 2400, overlap 
   for (const p of pieces) {
     if (cur && cur.length + p.length + 2 > maxChars) {
       chunks.push(cur);
-      cur = cur.slice(-overlap).replace(/^\S*\s/, '') + '\n\n' + p; // carry overlap from previous chunk
+      cur = overlap > 0 ? cur.slice(-overlap).replace(/^\S*\s/, '') + '\n\n' + p : p; // carry overlap from previous chunk
     } else cur = cur ? `${cur}\n\n${p}` : p;
   }
   if (cur) chunks.push(cur);

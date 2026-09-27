@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { t } from './i18n';
 import { LangSwitch } from './LangSwitch';
+import { Brand } from './Brand';
 
 interface AuthCfg { local: boolean; ldap: boolean; oidc: { name: string } | null }
 
@@ -32,7 +33,7 @@ export function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="login">
       <form className="card" onSubmit={submit}>
-        <div className="row"><h1 style={{ flex: 1 }}>AI Portal</h1><LangSwitch /></div>
+        <div className="row"><h1 style={{ flex: 1 }}><Brand /></h1><LangSwitch /></div>
         {pw && (
           <>
             {cfg.local && cfg.ldap && (

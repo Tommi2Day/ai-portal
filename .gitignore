@@ -1,0 +1,15 @@
+# dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+npm-debug.log*
+
+# local runtime state / secrets
+.env
+/shares/
+
+# IDE
+.vscode/*
+.idea/workspace.xml
+.idea/shelf/

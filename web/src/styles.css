@@ -3,6 +3,7 @@
   --accent: #1f1f1d; --accent-fg: #ffffff; --danger: #b42318; --radius: 10px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", Consolas, monospace;
+  --logo-height: 40px; --header-logo-height: 26px;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -31,7 +32,10 @@ button.icon { background: none; border: 0; padding: 0 6px; color: var(--muted); 
 .topbar nav { display: flex; gap: 4px; flex: 1; }
 .topbar nav button { background: none; border-color: transparent; }
 .topbar nav button.active, .seg button.active { background: var(--bg-soft); border-color: var(--line); }
-.brand { letter-spacing: -.01em; }
+.brand { letter-spacing: -.01em; display: inline-flex; align-items: center; gap: 10px; }
+.brand-logo { height: var(--header-logo-height); width: auto; max-width: 180px; display: block; }
+.card h1 .brand.has-logo { flex-direction: column; align-items: flex-start; }
+.card h1 .brand-logo { height: var(--logo-height); max-width: 240px; }
 .main { flex: 1; min-height: 0; }
 .chat-layout { display: flex; height: 100%; }
 .sidebar { width: 260px; border-right: 1px solid var(--line); padding: 14px; overflow-y: auto; flex-shrink: 0; }
@@ -85,6 +89,7 @@ tr.failed td { color: var(--danger); }
 .card h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; }
 .card .button { text-align: center; }
 .card .seg { margin: 0; }
+.login .row { align-items: flex-start; }
 .divider { text-align: center; color: var(--muted); font-size: 13px; }
 @media (max-width: 720px) {
   .sidebar { display: none; }

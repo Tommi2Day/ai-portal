@@ -3,3 +3,9 @@
 .env
 *.md
 deploy
+docs
+examples
+**/test
+**/vitest*.config.ts
+docker-compose.test.yml
+.github

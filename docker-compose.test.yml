@@ -1,0 +1,93 @@
+# Integration test stack (server/test/integration, `npm run test:integration` in server/).
+#
+#   docker compose -f docker-compose.test.yml up -d --wait        # everything (Oracle needs ~2 GB RAM)
+#   docker compose -f docker-compose.test.yml up -d --wait portal-db pg-mcp   # without Oracle, then IT_SKIP_ORACLE=1
+#   docker compose -f docker-compose.test.yml down -v
+#
+# The portal itself and the mock LLM run on the host (started by the tests); only
+# databases and MCP servers run here. Ports are bound to 127.0.0.1 only.
+name: ai-portal-it
+
+services:
+  # Portal database (pgvector); every test run creates and drops its own database
+  portal-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: aiportal
+      POSTGRES_PASSWORD: aiportal
+      POSTGRES_DB: aiportal
+    ports: ["127.0.0.1:${IT_PORTAL_DB_PORT:-55433}:5432"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiportal"]
+      interval: 2s
+      retries: 30
+
+  # PostgreSQL behind pg-mcp-server (https://github.com/Tommi2Day/pg-mcp-server)
+  pg-test:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: testdb
+    tmpfs: [/var/lib/postgresql]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d testdb"]
+      interval: 2s
+      retries: 30
+
+  pg-mcp:
+    image: tommi2day/pg-mcp-server:${PG_MCP_TAG:-latest}
+    depends_on:
+      pg-test: { condition: service_healthy }
+    environment:
+      TRANSPORT: http
+      PORT: 3000
+      AUTH_TOKEN: it-pg-token
+      MCP_SERVER_NAME: pg-mcp-it
+      PG_HOST: pg-test
+      PG_PORT: 5432
+      PG_DATABASE: testdb
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+    ports: ["127.0.0.1:${IT_PG_MCP_PORT:-3101}:3000"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 3s
+      start_period: 5s
+      retries: 30
+
+  # Oracle Free behind oracle-mcp-server (https://github.com/Tommi2Day/oracle-mcp-server)
+  oracle-test:
+    image: gvenzl/oracle-free:23-slim-faststart
+    environment:
+      ORACLE_PASSWORD: manager
+      APP_USER: mcp
+      APP_USER_PASSWORD: mcp_pw
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  oracle-mcp:
+    image: tommi2day/oracle-mcp-server:${ORACLE_MCP_TAG:-latest}
+    depends_on:
+      oracle-test: { condition: service_healthy }
+    environment:
+      TRANSPORT: http
+      PORT: 3000
+      AUTH_TOKEN: it-oracle-token
+      MCP_SERVER_NAME: oracle-mcp-it
+      ORA_HOST: oracle-test
+      ORA_PORT: 1521
+      ORA_SERVICE_NAME: FREEPDB1
+      ORA_USER: mcp
+      ORA_PASSWORD: mcp_pw
+    ports: ["127.0.0.1:${IT_ORACLE_MCP_PORT:-3102}:3000"]
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))\""]
+      interval: 3s
+      start_period: 5s
+      retries: 30
