@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/Tommi2Day/ai-portal/actions/workflows/ci.yml/badge.svg)](https://github.com/Tommi2Day/ai-portal/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/Tommi2Day/ai-portal/graph/badge.svg)](https://codecov.io/gh/Tommi2Day/ai-portal)
+[![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tommi2day/ai-portal)](https://github.com/Tommi2Day/ai-portal/releases)
+[![Docker Pulls](https://img.shields.io/docker/pulls/tommi2day/ai-portal?logo=docker)](https://hub.docker.com/r/tommi2day/ai-portal)
 [![License: MIT](https://img.shields.io/github/license/tommi2day/ai-portal)](LICENSE)
 
 Die Oberfläche ist auf **Deutsch und Englisch** verfügbar (Umschalter DE | EN oben rechts und auf der Anmeldeseite; Standard ist die Browsersprache).
