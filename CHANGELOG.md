@@ -5,6 +5,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-09-28
+
+AWS Bedrock without stored secrets: IAM role with self-renewing short-term API keys (optionally assuming a role), and
+the model selection of the admin UI lists the models of the AWS account. Docker image: `tommi2day/ai-portal:0.0.2`.
+
 ### Added
 
 - AWS Bedrock authentication *IAM role (short-term API keys)*: no stored secret; the portal takes its identity from
@@ -69,5 +74,6 @@ server, audit log, German and English UI, Docker Compose and Kubernetes manifest
 - Knowledge base: `chunkText` with `overlap = 0` repeated the complete previous chunk in every chunk (not reachable with
   the default overlap of 300).
 
-[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.0.1...HEAD
+[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.0.2...HEAD
+[0.0.2]: https://github.com/Tommi2Day/ai-portal/compare/0.0.1...0.0.2
 [0.0.1]: https://github.com/Tommi2Day/ai-portal/releases/tag/0.0.1
