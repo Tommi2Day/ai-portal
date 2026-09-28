@@ -238,6 +238,27 @@ export const EN: Record<string, string> = {
   'übersprungen': 'skipped',
   'Fehler': 'error',
   'indiziert': 'indexed',
+  // Bedrock: authentication and models of the AWS account
+  'IAM-Rolle': 'IAM role',
+  'IAM-Rolle (kurzlebige API-Keys)': 'IAM role (short-term API keys)',
+  'Zugangsschlüssel': 'Access keys',
+  'Bedrock-API-Key': 'Bedrock API key',
+  'Anmeldung': 'Authentication',
+  'Rolle übernehmen (optional)': 'Assume role (optional)',
+  'External ID (optional)': 'External ID (optional)',
+  'Keine gespeicherten Schlüssel: Das Portal nutzt die AWS-Identität des Pods (EKS Pod Identity, IRSA, Instanzprofil) und erzeugt daraus kurzlebige Bedrock-API-Keys, die es selbst erneuert.':
+    'No stored keys: the portal uses the AWS identity of the pod (EKS Pod Identity, IRSA, instance profile) and creates short-term Bedrock API keys from it, which it renews by itself.',
+  'Verfügbare Modelle im AWS-Konto': 'Models available in the AWS account',
+  'Liste neu aus dem Konto laden': 'Reload the list from the account',
+  'lädt …': 'loading …',
+  '– auswählen –': '– select –',
+  'Inferenzprofile (regionsübergreifend)': 'Inference profiles (cross-region)',
+  'Modelle in der Region': 'Models in the region',
+  'Vorlagen': 'Presets',
+  '– bereits freigegeben': '– already approved',
+  'Abfrage im AWS-Konto fehlgeschlagen:': 'Query in the AWS account failed:',
+  '– veraltet': '– legacy',
+  '– kein Modellzugriff': '– no model access',
   // document errors stored by the server
   'Kein Text extrahierbar (Format nicht unterstützt oder gescannt)': 'No text could be extracted (unsupported format or scanned)',
 };

@@ -4,6 +4,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { decryptJson } from '../crypto.js';
 import type { Model, Provider } from '../db/schema.js';
+import { bedrockSdkOptions } from './bedrock.js';
 
 interface ProviderSecret {
   apiKey?: string;
@@ -38,15 +39,8 @@ export function languageModel(p: Provider, m: Model): LanguageModel {
     case 'anthropic':
       return createAnthropic({ apiKey: s.apiKey, baseURL: p.baseUrl || undefined })(m.modelId);
     case 'bedrock':
-      // Without keys the AWS default chain is not used by this SDK version -> use static keys or an API key.
-      return createAmazonBedrock({
-        region: p.region || 'eu-central-1',
-        apiKey: s.apiKey || undefined,
-        accessKeyId: s.accessKeyId || undefined,
-        secretAccessKey: s.secretAccessKey || undefined,
-        sessionToken: s.sessionToken || undefined,
-        baseURL: p.baseUrl || undefined,
-      })(m.modelId);
+      // static keys, static API key, or IAM role with self-renewing short-term API keys (ai/bedrock.ts)
+      return createAmazonBedrock(bedrockSdkOptions(p))(m.modelId);
     case 'github': {
       // GitHub Models (github.com or GHE.com). Org-scoped endpoint enables org billing & policies.
       const org = p.options?.org;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api } from './api';
 import { locale, t } from './i18n';
+import { availableLabel, useAvailable } from './availableModels';
 
 type SType = 'upload' | 'filesystem' | 'confluence' | 'sharepoint';
 interface Source {
@@ -71,7 +72,12 @@ function EmbeddingSettings({ onSaved }: { onSaved: () => void }) {
     onSaved();
   };
 
-  const presets = cfg?.presets[provs.find((p) => p.id === f.providerId)?.type ?? ''] ?? [];
+  const isBedrock = provs.find((p) => p.id === f.providerId)?.type === 'bedrock';
+  const { av } = useAvailable(isBedrock ? f.providerId : '');
+  const fromAccount = av?.source === 'account' ? av.models.filter((m) => m.kind === 'embedding') : [];
+  const presets = fromAccount.length
+    ? fromAccount.map((m) => ({ modelId: m.modelId, label: availableLabel(m), dimensions: undefined as number | undefined, disabled: m.access === 'missing' }))
+    : (cfg?.presets[provs.find((p) => p.id === f.providerId)?.type ?? ''] ?? []).map((p) => ({ ...p, disabled: false }));
   return (
     <div className="card-box">
       <h4>{t('Embedding-Modell')}</h4>
@@ -81,8 +87,8 @@ function EmbeddingSettings({ onSaved }: { onSaved: () => void }) {
           <option value="">{t('– wählen –')}</option>{provs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select></label>
         {presets.length > 0 && (
-          <label>{t('Vorlage')}<select value="" onChange={(e) => { const x = presets.find((p) => p.modelId === e.target.value); if (x) setF({ ...f, modelId: x.modelId, dimensions: x.dimensions ? String(x.dimensions) : '' }); }}>
-            <option value="">{t('– Vorlage –')}</option>{presets.map((p) => <option key={p.modelId} value={p.modelId}>{p.label}</option>)}
+          <label>{fromAccount.length ? t('Verfügbare Modelle im AWS-Konto') : t('Vorlage')}<select value="" onChange={(e) => { const x = presets.find((p) => p.modelId === e.target.value); if (x) setF({ ...f, modelId: x.modelId, dimensions: x.dimensions ? String(x.dimensions) : '' }); }}>
+            <option value="">{t('– Vorlage –')}</option>{presets.map((p) => <option key={p.modelId} value={p.modelId} disabled={p.disabled}>{p.label}</option>)}
           </select></label>
         )}
         <label>{t('Modell-ID')}<input required value={f.modelId} onChange={(e) => setF({ ...f, modelId: e.target.value })} /></label>

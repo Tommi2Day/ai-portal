@@ -38,32 +38,62 @@ Presets: `claude-opus-5-5`, `claude-sonnet-5`, `claude-haiku-4-5-20251001` — a
 | Field | Value |
 | --- | --- |
 | Region | Region of the Bedrock runtime endpoint, e.g. `eu-central-1` (default when empty). |
-| Access key ID + secret access key | IAM user dedicated to the portal (see policy below). Signed with SigV4. |
-| *or* Bedrock API key | A long-term Bedrock API key; sent as Bearer token. Leave the access key fields empty. |
+| Authentication | **IAM role (short-term API keys)** – recommended, no stored secret (see below) · **Access keys** of an IAM user dedicated to the portal, signed with SigV4 · **Bedrock API key**, a long-term key sent as Bearer token |
+| Assume role (optional) | IAM role + optional external ID; with *IAM role* or *access keys* the portal first assumes this role (STS `AssumeRole`, 1 h sessions renewed automatically), e.g. a Bedrock role in a separate AWS account. |
+
+**IAM role with short-term API keys.** The portal takes its AWS identity from the default credential chain — EKS Pod
+Identity, IRSA (web identity token), EC2/ECS instance profile or the `AWS_*` environment variables — assumes the
+configured role if one is set, and signs short-term Bedrock API keys from these credentials locally
+(`@aws/bedrock-token-generator`, no AWS request). A key is valid for `BEDROCK_TOKEN_TTL_SECONDS` (default 1 h, max. 12 h)
+but never longer than the underlying credentials, is cached in memory and renewed 5 minutes before it expires or after a
+`401`/`403` from Bedrock. Nothing is stored in the database; key rotation needs no restart. Chat and embeddings use the
+same mechanism.
+
+**Models of the account.** When approving a model (and when choosing the embedding model of the knowledge base) the
+admin UI lists what the AWS account offers in the provider's region: system inference profiles (cross-region,
+e.g. `eu.…`), on-demand foundation models and embedding models, with legacy models and missing model access marked
+(access comes from `GetFoundationModelAvailability`). `BEDROCK_INFERENCE_PROFILE_PREFIXES` limits the profiles, e.g.
+`eu.` to offer only EU inference profiles. The list is cached for 10 minutes (↻ reloads it). It needs
+`bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles` and — for the access status —
+`bedrock:GetFoundationModelAvailability`; without them, or with a static Bedrock API key (which only calls models),
+the UI falls back to the presets and shows the reason.
 
 **Model IDs.** Current Anthropic models on Bedrock are called through a *cross-region inference profile*: the model ID starts with the geography, e.g. `eu.anthropic.claude-haiku-4-5-20251001-v1:0`. The profile keeps processing inside the EU regions. Presets: Claude Sonnet 4.5 and Haiku 4.5 (EU profiles), Amazon Nova Pro (EU).
 
 **Model access.** Anthropic models require a one-time use-case form in the Bedrock console of the AWS account before the first call.
 
-**IAM policy** (minimum for chat and Titan/Cohere embeddings):
+**IAM policy** (chat, Titan/Cohere embeddings, model list; `CallWithBearerToken` only for API keys):
 
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-    "Resource": [
-      "arn:aws:bedrock:*::foundation-model/*",
-      "arn:aws:bedrock:eu-central-1:<account-id>:inference-profile/eu.*"
-    ]
-  }]
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/*",
+        "arn:aws:bedrock:eu-central-1:<account-id>:inference-profile/eu.*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles", "bedrock:GetFoundationModelAvailability"],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "bedrock:CallWithBearerToken",
+      "Resource": "*"
+    }
+  ]
 }
 ```
 
-With an inference profile the foundation-model permission must cover every region the profile routes to — hence `*` for the region above. Narrow the model part (`anthropic.claude-*`, `amazon.titan-embed-*`) as you like.
+With *assume role*, this policy belongs to the assumed role; the portal's own identity only needs `sts:AssumeRole` on
+it, and the role's trust policy must allow that identity (and require the external ID, if set).
 
-**No IAM roles (IRSA, Pod Identity, instance profiles).** The portal does not use the AWS default credential chain; it needs static keys or a Bedrock API key stored in the provider. A session token (temporary credentials) can only be set through the API (`PATCH /api/admin/providers/:id` with `secret.sessionToken`) and expires, so it is not suitable for continuous operation. Supporting the credential chain is an open decision in the architecture concept.
+With an inference profile the foundation-model permission must cover every region the profile routes to — hence `*` for the region above. Narrow the model part (`anthropic.claude-*`, `amazon.titan-embed-*`) as you like.
 
 **Base URL** (API only): a VPC interface endpoint for `bedrock-runtime`, e.g. `https://vpce-….bedrock-runtime.eu-central-1.vpce.amazonaws.com`, when traffic must not leave the VPC. With private DNS enabled on the endpoint the default hostname already resolves to it and no base URL is needed.
 
@@ -139,7 +169,7 @@ The answer is streamed to the browser as it arrives. Text, tool calls and token 
 
 | Task | How |
 | --- | --- |
-| Rotate a key | **Key** in the provider row stores a new API key; it applies to the next message. For Bedrock with access keys, **Key** replaces the access keys with a Bedrock API key — rotate access keys via `PATCH /api/admin/providers/:id` with `{"secret":{"accessKeyId":"…","secretAccessKey":"…"}}`. |
+| Rotate a key | **Key** in the provider row stores a new API key; it applies to the next message. Bedrock with an IAM role has nothing to rotate (short-term keys renew themselves) and no **Key** button. For Bedrock with access keys, **Key** switches the provider to a Bedrock API key — rotate access keys via `PATCH /api/admin/providers/:id` with `{"secret":{"accessKeyId":"…","secretAccessKey":"…"}}`. |
 | Change base URL / region | Via `PATCH /api/admin/providers/:id` (`baseUrl`, `region`, `options.org`); the UI sets them only when creating a provider. Alternatively create a new provider and move the models. |
 | Switch off a vendor | Untick **Active** at the provider: all its models disappear from the picker at once. |
 | Delete a provider | Deletes its models as well; chats keep their messages. |

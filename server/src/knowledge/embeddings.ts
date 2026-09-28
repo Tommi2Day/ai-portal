@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { providers, settings, type Provider } from '../db/schema.js';
 import { decryptJson } from '../crypto.js';
+import { bedrockSdkOptions } from '../ai/bedrock.js';
 
 export interface EmbeddingSettings {
   providerId: string;
@@ -39,11 +40,7 @@ function modelFor(p: Provider, s: EmbeddingSettings): EmbeddingModel {
   const sec = decryptJson<{ apiKey?: string; accessKeyId?: string; secretAccessKey?: string; sessionToken?: string }>(p.secretEnc, {});
   switch (p.type) {
     case 'bedrock':
-      return createAmazonBedrock({
-        region: p.region || 'eu-central-1', apiKey: sec.apiKey || undefined,
-        accessKeyId: sec.accessKeyId || undefined, secretAccessKey: sec.secretAccessKey || undefined, sessionToken: sec.sessionToken || undefined,
-        baseURL: p.baseUrl || undefined,
-      }).embeddingModel(s.modelId);
+      return createAmazonBedrock(bedrockSdkOptions(p)).embeddingModel(s.modelId);
     case 'github': {
       const org = p.options?.org;
       const base = p.baseUrl || (org ? `https://models.github.ai/orgs/${org}/inference` : 'https://models.github.ai/inference');

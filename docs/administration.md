@@ -24,11 +24,15 @@ Details per provider type (IAM policy, base URLs, proxy, what is sent, troublesh
    | Type | What to enter |
    | --- | --- |
    | Anthropic Claude | API key; optional base URL for a proxy or gateway |
-   | AWS Bedrock | Region, access key ID + secret access key **or** a Bedrock API key |
+   | AWS Bedrock | Region and authentication: IAM role of the portal (short-term API keys, nothing stored), access key ID + secret access key, or a Bedrock API key; optionally a role to assume |
    | GitHub Models / Enterprise | Token with `models:read`; optional organization (bills and applies policies to the org) |
    | OpenAI-compatible | Base URL (Azure OpenAI, vLLM, Ollama, LiteLLM, TEI, …) and API key |
 
    Keys are write-only. “Key” replaces a key; the old one is never shown.
+
+   For Bedrock (IAM role or access keys) the model selection below lists the models of the AWS account — inference
+   profiles, models in the region, legacy models and missing model access are marked; ↻ reloads the list. See
+   [Connecting LLM providers](llm-providers.md#aws-bedrock).
 
 2. **Approve models** (“Approve model”): pick the provider, optionally a preset, set model ID and display name, and tick “understands images” if the model accepts images. Presets are starting points — verify model IDs against the vendor's current catalog.
 3. Mark exactly one model as **default**. Disable models or whole providers to remove them from the user selection immediately.

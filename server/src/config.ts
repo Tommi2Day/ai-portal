@@ -57,6 +57,11 @@ const schema = z.object({
   OIDC_GROUP_CLAIM: z.string().default('groups'),
   OIDC_USER_VALUE: z.string().optional(), // if set, required to log in
 
+  // AWS Bedrock with an IAM role: lifetime of the self-renewing short-term API keys (max. 12 h)
+  BEDROCK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(300).max(43200).default(3600),
+  /** Model list from the account: only inference profiles with these ID prefixes (e.g. "eu."); empty = all. */
+  BEDROCK_INFERENCE_PROFILE_PREFIXES: z.string().default(''),
+
   // Limits
   UPLOAD_MAX_MB: z.coerce.number().default(20),
   MAX_TOOL_STEPS: z.coerce.number().default(8),

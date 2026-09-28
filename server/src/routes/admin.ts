@@ -7,6 +7,7 @@ import { audit } from '../audit.js';
 import { encryptJson } from '../crypto.js';
 import { hashPassword } from '../auth/local.js';
 import { MODEL_PRESETS } from '../ai/providers.js';
+import { bedrockAuth, listAvailableModels } from '../ai/bedrock.js';
 
 export const adminRouter = Router();
 
@@ -86,12 +87,18 @@ const providerPublic = {
   hasSecret: sql<boolean>`${providers.secretEnc} is not null`,
 };
 
+const ROLE_ARN = /^arn:aws[a-z-]*:iam::\d{12}:role\/[\w+=,.@/-]+$/;
+
 const providerBody = z.object({
   name: z.string().min(1).max(100),
   type: z.enum(['anthropic', 'bedrock', 'github', 'openai_compatible']),
   baseUrl: z.string().url().optional().or(z.literal('')),
   region: z.string().max(50).optional(),
-  options: z.record(z.string(), z.string()).optional(),
+  /** GitHub: org. Bedrock: auth (keys | apiKey | iam), roleArn and externalId for AssumeRole. */
+  options: z.record(z.string(), z.string()).refine(
+    (o) => (!o.auth || ['keys', 'apiKey', 'iam'].includes(o.auth)) && (!o.roleArn || ROLE_ARN.test(o.roleArn)),
+    'Ungültige Bedrock-Optionen (auth: keys, apiKey oder iam; roleArn: arn:aws:iam::<Konto>:role/<Name>)',
+  ).optional(),
   enabled: z.boolean().optional(),
   /** Write-only. Omit to keep the stored secret. */
   secret: z.object({
@@ -107,6 +114,23 @@ adminRouter.get('/providers', async (_req, res) => {
 });
 
 adminRouter.get('/model-presets', (_req, res) => res.json(MODEL_PRESETS));
+
+/**
+ * Models the provider offers. Bedrock: queried from the AWS account (inference profiles, foundation models,
+ * model access); other types and Bedrock with a static API key: the presets. `?refresh=1` bypasses the cache.
+ */
+adminRouter.get('/providers/:id/available-models', async (req, res) => {
+  const [p] = await db.select().from(providers).where(eq(providers.id, req.params.id));
+  if (!p) return res.status(404).json({ error: 'Anbieter unbekannt' });
+  const presets = MODEL_PRESETS[p.type].map((m) => ({ ...m, kind: 'chat', via: 'preset', access: 'unknown', legacy: false }));
+  if (p.type !== 'bedrock' || bedrockAuth(p) === 'apiKey') return res.json({ source: 'presets', models: presets });
+  try {
+    res.json({ source: 'account', models: await listAvailableModels(p, { refresh: req.query.refresh === '1' }) });
+  } catch (e) {
+    // e.g. missing bedrock:List* permission or no credentials: show the presets with the reason
+    res.json({ source: 'presets', models: presets, error: (e as Error).message });
+  }
+});
 
 adminRouter.post('/providers', async (req, res) => {
   const p = providerBody.safeParse(req.body);

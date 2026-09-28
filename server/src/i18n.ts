@@ -24,6 +24,9 @@ const EXACT: Record<string, string> = {
   'Anmeldung fehlgeschlagen': 'Sign-in failed',
   'SSO-Anmeldung fehlgeschlagen': 'SSO sign-in failed',
   'Anbieter unbekannt': 'Unknown provider',
+  'Mit einem Bedrock-API-Key ist nur der Modellaufruf möglich': 'A Bedrock API key can only call models',
+  'Ungültige Bedrock-Optionen (auth: keys, apiKey oder iam; roleArn: arn:aws:iam::<Konto>:role/<Name>)':
+    'Invalid Bedrock options (auth: keys, apiKey or iam; roleArn: arn:aws:iam::<account>:role/<name>)',
   'Anthropic bietet keine Embeddings an': 'Anthropic does not offer embeddings',
   'Anthropic bietet keine Embedding-Modelle an – bitte Bedrock, GitHub oder einen OpenAI-kompatiblen Endpunkt wählen':
     'Anthropic does not offer embedding models – please choose Bedrock, GitHub or an OpenAI-compatible endpoint',

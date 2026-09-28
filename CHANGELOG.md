@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- AWS Bedrock authentication *IAM role (short-term API keys)*: no stored secret; the portal takes its identity from
+  the AWS default credential chain (EKS Pod Identity, IRSA, instance profile, `AWS_*` variables), optionally assumes a
+  configured role (role ARN, external ID), signs short-term Bedrock API keys locally (`@aws/bedrock-token-generator`)
+  and renews them before they expire or after a `401`/`403` (`BEDROCK_TOKEN_TTL_SECONDS`, default 1 h). Chat and
+  embeddings use it. The provider option `auth` (`iam`, `keys`, `apiKey`) selects the mode; existing providers keep
+  their stored keys.
+- Model selection from the AWS account: `GET /api/admin/providers/:id/available-models` lists the inference profiles,
+  on-demand foundation models and embedding models of the account in the provider's region with legacy flag and model
+  access (`GetFoundationModelAvailability`), cached for 10 minutes; `BEDROCK_INFERENCE_PROFILE_PREFIXES` limits the
+  profiles (e.g. `eu.`). The admin UI uses it when approving models and choosing the embedding model, and falls back to
+  the presets (other provider types, static Bedrock API key, missing permissions).
+
 ## [0.0.1] - 2026-09-27
 
 First release. The portal: chat with streaming and attachments, sign-in with local accounts, LDAP/AD and OIDC,

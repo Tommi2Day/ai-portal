@@ -42,13 +42,18 @@ describe('languageModel', () => {
   it('Bedrock: access keys, default region eu-central-1', () => {
     languageModel(provider({ type: 'bedrock', secret: { accessKeyId: 'AKIA', secretAccessKey: 's3cr3t' } }), model('eu.anthropic.claude-haiku-4-5-20251001-v1:0'));
     expect(sdk.bedrock).toHaveBeenCalledWith({
-      region: 'eu-central-1', apiKey: undefined, accessKeyId: 'AKIA', secretAccessKey: 's3cr3t', sessionToken: undefined, baseURL: undefined,
+      region: 'eu-central-1', accessKeyId: 'AKIA', secretAccessKey: 's3cr3t', sessionToken: undefined, baseURL: undefined,
     });
   });
 
   it('Bedrock: API key, own region and VPC endpoint', () => {
     languageModel(provider({ type: 'bedrock', region: 'eu-west-1', baseUrl: 'https://vpce.example', secret: { apiKey: 'bedrock-key' } }), model('x'));
-    expect(sdk.bedrock).toHaveBeenCalledWith(expect.objectContaining({ region: 'eu-west-1', apiKey: 'bedrock-key', accessKeyId: undefined, baseURL: 'https://vpce.example' }));
+    expect(sdk.bedrock).toHaveBeenCalledWith({ region: 'eu-west-1', apiKey: 'bedrock-key', baseURL: 'https://vpce.example' });
+  });
+
+  it('Bedrock: IAM role without stored secret uses self-renewing short-term keys', () => {
+    languageModel(provider({ type: 'bedrock', options: { auth: 'iam' } }), model('eu.anthropic.claude-haiku-4-5-20251001-v1:0'));
+    expect(sdk.bedrock).toHaveBeenCalledWith(expect.objectContaining({ region: 'eu-central-1', apiKey: expect.any(String), fetch: expect.any(Function) }));
   });
 
   it('GitHub: default inference endpoint', () => {

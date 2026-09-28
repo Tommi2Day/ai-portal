@@ -122,15 +122,16 @@ Anbieter und Modelle sind **keine Umgebungsvariablen**: Admins pflegen sie unter
 | Typ | Aufgerufene API | Eintragen |
 | --- | --- | --- |
 | Anthropic Claude | Messages API `https://api.anthropic.com/v1/messages` | API-Schlüssel aus der Anthropic Console (eigener Schlüssel/Workspace fürs Portal). Basis-URL nur für ein Gateway, **inklusive** `/v1` |
-| AWS Bedrock | Converse API `https://bedrock-runtime.<region>.amazonaws.com` | Region (Standard `eu-central-1`) und Access Key + Secret eines IAM-Benutzers **oder** ein Bedrock-API-Key |
+| AWS Bedrock | Converse API `https://bedrock-runtime.<region>.amazonaws.com` | Region (Standard `eu-central-1`) und Anmeldung: IAM-Rolle des Portals (kurzlebige API-Keys, nichts gespeichert), Access Key + Secret eines IAM-Benutzers oder ein Bedrock-API-Key; optional eine zu übernehmende Rolle |
 | GitHub Models / Enterprise | `https://models.github.ai/inference`, mit Organisation `…/orgs/<org>/inference` | Fine-grained Token mit **Models: read**; Organisation optional (Richtlinien und Abrechnung der Org) |
 | OpenAI-kompatibel | `<Basis-URL>/chat/completions` bzw. `/embeddings` | Basis-URL (Teil vor `/chat/completions`) und optional API-Schlüssel (Bearer) |
 
 **AWS Bedrock** im Detail:
 
 - Anthropic-Modelle über ein regionsübergreifendes Inference-Profile aufrufen, die Modell-ID beginnt dann mit der Geografie, z. B. `eu.anthropic.claude-haiku-4-5-20251001-v1:0` (Verarbeitung bleibt in EU-Regionen). Für Anthropic-Modelle muss im AWS-Konto einmalig das Use-Case-Formular in der Bedrock-Konsole ausgefüllt sein.
+- **Modelle des Kontos:** Beim Freigeben eines Modells (und beim Embedding-Modell) listet die Oberfläche, was das AWS-Konto in der Region anbietet – Inferenzprofile, Modelle der Region, veraltete Modelle und fehlender Modellzugriff sind markiert. `BEDROCK_INFERENCE_PROFILE_PREFIXES=eu.` zeigt nur EU-Profile. Rechte dafür: `bedrock:ListFoundationModels`, `bedrock:ListInferenceProfiles`, `bedrock:GetFoundationModelAvailability`.
 - IAM-Rechte: `bedrock:InvokeModel` und `bedrock:InvokeModelWithResponseStream` auf `arn:aws:bedrock:*::foundation-model/*` (alle Regionen des Profils) und `arn:aws:bedrock:<region>:<konto>:inference-profile/eu.*` – Beispiel-Policy in [docs/llm-providers.md](docs/llm-providers.md#aws-bedrock).
-- **Keine IAM-Rollen** (IRSA, Pod Identity, Instance Profile): Das Portal nutzt die AWS-Credential-Chain nicht, es braucht statische Keys oder einen Bedrock-API-Key. Ein Session-Token lässt sich nur per API setzen und läuft ab.
+- **IAM-Rolle (empfohlen):** Das Portal nimmt seine AWS-Identität aus der Credential-Chain (EKS Pod Identity, IRSA, Instanzprofil, `AWS_*`-Variablen), übernimmt optional eine weitere Rolle (AssumeRole, z. B. in einem Bedrock-Konto) und signiert daraus lokal kurzlebige Bedrock-API-Keys (`BEDROCK_TOKEN_TTL_SECONDS`, Standard 1 h), die es vor Ablauf selbst erneuert. Nichts wird gespeichert, kein Neustart für Rotation. Recht dafür zusätzlich: `bedrock:CallWithBearerToken`.
 
 **OpenAI-kompatible Endpunkte** – Beispiele für die Basis-URL:
 

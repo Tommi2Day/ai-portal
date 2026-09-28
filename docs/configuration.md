@@ -130,6 +130,14 @@ Redirect URI to register at the identity provider: `<PUBLIC_URL>/api/auth/oidc/c
 | `MAX_TOOL_STEPS` | `8` | Maximum model ↔ tool round trips per answer |
 | `MCP_ALLOW_PRIVATE_NETWORKS` | `true` | Allow user MCP servers on private IP ranges. Set `false` to block them (SSRF protection). |
 
+## AWS Bedrock
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `BEDROCK_TOKEN_TTL_SECONDS` | `3600` | Lifetime of the short-term Bedrock API keys of providers with *IAM role* (300–43200); never longer than the underlying AWS credentials, renewed 5 minutes before expiry |
+| `BEDROCK_INFERENCE_PROFILE_PREFIXES` | – | Model list from the AWS account: only inference profiles with these ID prefixes, comma-separated, e.g. `eu.`; empty = all |
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`, … | – | Standard AWS SDK variables of the default credential chain used by *IAM role* providers (usually injected by EKS Pod Identity / IRSA) |
+
 ## Knowledge base
 
 | Variable | Default | Description |
