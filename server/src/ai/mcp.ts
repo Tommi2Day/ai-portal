@@ -46,7 +46,7 @@ export async function connectMcp(s: McpServer): Promise<Client> {
   return client;
 }
 
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 20) || 'mcp';
+export const slug = (s: string) => s.toLowerCase().replaceAll(/[^a-z0-9]+/g, '_').replaceAll(/(^_)|(_$)/g, '').slice(0, 20) || 'mcp';
 
 export interface McpSession {
   tools: ToolSet;

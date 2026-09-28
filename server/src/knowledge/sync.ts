@@ -9,7 +9,7 @@ import { indexDocument, planDocument, removeMissing } from './store.js';
 import { filesystemConnector, type FilesystemConfig } from './connectors/filesystem.js';
 import { confluenceConnector, type ConfluenceConfig, type ConfluenceSecret } from './connectors/confluence.js';
 import { sharepointConnector, type SharePointConfig, type SharePointSecret } from './connectors/sharepoint.js';
-import type { Connector } from './connectors/types.js';
+import type { Connector, DocRef } from './connectors/types.js';
 
 export function connectorFor(s: KnowledgeSource): Connector | null {
   switch (s.type) {
@@ -31,8 +31,35 @@ async function reindexUploads(s: KnowledgeSource, embedder: Embedder, stats: Rec
   }
 }
 
+type Stats = Record<string, number>;
+
+/** One document of a connector: skip if unchanged, re-embed stored text if only the model changed, else load and index. */
+async function syncDocument(s: KnowledgeSource, ref: DocRef, embedder: Embedder, stats: Stats) {
+  const plan = await planDocument(s.id, ref.externalId, ref.version, embedder.key);
+  if (plan.action === 'unchanged') { stats.unchanged++; return; }
+  // only the embedding model changed: re-embed the stored text, no download from the source
+  const content = plan.action === 'reembed' ? { text: plan.text } : await ref.load();
+  const r = await indexDocument(s, { ...ref, ...content }, embedder);
+  stats[r === 'error' ? 'errors' : r]++;
+}
+
+/** Connector sources: index new/changed documents, remove documents that disappeared from the source. */
+async function syncConnector(s: KnowledgeSource, embedder: Embedder, stats: Stats) {
+  const seen: string[] = [];
+  for await (const ref of connectorFor(s)!.list()) {
+    seen.push(ref.externalId);
+    try {
+      await syncDocument(s, ref, embedder, stats);
+    } catch (e) {
+      stats.errors++;
+      logger.warn({ err: e, source: s.name, doc: ref.externalId }, 'knowledge document failed');
+    }
+  }
+  stats.removed = await removeMissing(s.id, seen);
+}
+
 /** 64-bit advisory lock key per source -> only one pod syncs a source at a time. */
-const lockKey = (id: string) => BigInt.asIntN(64, BigInt('0x' + id.replace(/-/g, '').slice(0, 16))).toString();
+const lockKey = (id: string) => BigInt.asIntN(64, BigInt('0x' + id.replaceAll('-', '').slice(0, 16))).toString();
 
 export async function syncSource(sourceId: string, trigger: 'schedule' | 'manual', actor?: { id: string; username: string }) {
   const lockClient = await pool.connect();
@@ -59,26 +86,8 @@ async function runSync(sourceId: string, trigger: string, actor?: { id: string; 
   try {
     const embedder = await getEmbedder();
     if (!embedder) throw new Error('Kein Embedding-Modell konfiguriert');
-    if (s.type === 'upload') {
-      await reindexUploads(s, embedder, stats);
-    } else {
-      const seen: string[] = [];
-      for await (const ref of connectorFor(s)!.list()) {
-        seen.push(ref.externalId);
-        try {
-          const plan = await planDocument(s.id, ref.externalId, ref.version, embedder.key);
-          if (plan.action === 'unchanged') { stats.unchanged++; continue; }
-          // only the embedding model changed: re-embed the stored text, no download from the source
-          const content = plan.action === 'reembed' ? { text: plan.text } : await ref.load();
-          const r = await indexDocument(s, { ...ref, ...content }, embedder);
-          stats[r === 'error' ? 'errors' : r]++;
-        } catch (e) {
-          stats.errors++;
-          logger.warn({ err: e, source: s.name, doc: ref.externalId }, 'knowledge document failed');
-        }
-      }
-      stats.removed = await removeMissing(s.id, seen);
-    }
+    if (s.type === 'upload') await reindexUploads(s, embedder, stats);
+    else await syncConnector(s, embedder, stats);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     logger.error({ err: e, source: s.name }, 'knowledge sync failed');

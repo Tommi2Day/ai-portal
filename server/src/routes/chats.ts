@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
-import { streamText, stepCountIs, type ModelMessage, type UserContent } from 'ai';
+import { streamText, stepCountIs, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
-import { attachments, chats, mcpServers, messages, models, providers, type MessagePart } from '../db/schema.js';
+import { attachments, chats, mcpServers, messages, models, providers } from '../db/schema.js';
 import { audit } from '../audit.js';
 import { languageModel } from '../ai/providers.js';
 import { openMcpSession } from '../ai/mcp.js';
-import { isImage } from '../extract.js';
+import { AnswerRecorder, chatTitle, systemPrompt, toModelMessages, type StreamEvent } from '../ai/answer.js';
 import { logger } from '../logger.js';
 import { langOf, tr } from '../i18n.js';
 import { accessibleCollections, knowledgeTool } from '../knowledge/search.js';
@@ -67,13 +67,6 @@ chatsRouter.delete('/:id', async (req, res) => {
   res.status(204).end();
 });
 
-const SYSTEM_PROMPT = () => `Du bist der KI-Assistent des internen AI Portals.
-Heute ist ${new Date().toLocaleDateString('de-DE', { dateStyle: 'full' })}.
-Antworte in der Sprache der Nutzerin bzw. des Nutzers, präzise und strukturiert, mit Markdown.
-Bei Fehleranalysen: nenne die wahrscheinlichste Ursache zuerst, belege sie mit Zeilen aus Logs/Stacktraces und schlage konkrete nächste Schritte vor.
-Bei Präsentationen: liefere eine Gliederung Folie für Folie mit Titel, Kernaussage und Stichpunkten.
-Nutze verfügbare Tools, wenn sie für die Antwort nötig sind.`;
-
 const sendBody = z.object({
   content: z.string().min(1).max(200_000),
   modelId: z.string().uuid(),
@@ -81,15 +74,64 @@ const sendBody = z.object({
   useMcp: z.boolean().default(true),
   useKnowledge: z.boolean().default(true),
 });
+type SendBody = z.infer<typeof sendBody>;
+type Req = Parameters<Parameters<typeof chatsRouter.post>[1]>[0];
 
-type Att = typeof attachments.$inferSelect;
+/** Enabled model of an enabled provider, or undefined. */
+async function availableModel(modelId: string) {
+  const [mp] = await db.select().from(models).innerJoin(providers, eq(models.providerId, providers.id))
+    .where(and(eq(models.id, modelId), eq(models.enabled, true), eq(providers.enabled, true)));
+  return mp ? { model: mp.models, provider: mp.providers } : undefined;
+}
 
-function buildUserContent(text: string, atts: Att[], images: boolean): UserContent {
-  const parts: Exclude<UserContent, string> = [];
-  const docs = atts.filter((a) => a.extractedText).map((a) => `<datei name="${a.filename}">\n${a.extractedText}\n</datei>`);
-  parts.push({ type: 'text', text: docs.length ? `${docs.join('\n\n')}\n\n${text}` : text });
-  if (images) for (const a of atts) if (isImage(a.mimeType)) parts.push({ type: 'image', image: a.data, mediaType: a.mimeType });
-  return parts;
+/** History of the chat and the user's own attachments referenced by it or by the new prompt. */
+async function loadHistory(chatId: string, userId: string, newIds: string[]) {
+  const history = await db.select().from(messages).where(eq(messages.chatId, chatId)).orderBy(asc(messages.createdAt));
+  const ids = [...new Set([...history.flatMap((m) => m.attachmentIds), ...newIds])];
+  const atts = ids.length ? await db.select().from(attachments).where(and(inArray(attachments.id, ids), eq(attachments.userId, userId))) : [];
+  return { history, attMap: new Map(atts.map((a) => [a.id, a])) };
+}
+
+/** Knowledge-base tool if enabled, configured and the user can see at least one collection. */
+async function knowledgeTools(req: Req, chatId: string, use: boolean): Promise<ToolSet> {
+  if (!config.KNOWLEDGE_ENABLED || !use || !(await getEmbeddingSettings())) return {};
+  const cols = await accessibleCollections(req.user!);
+  if (!cols.length) return {};
+  return {
+    wissensdatenbank_suchen: knowledgeTool(cols, (i) => void audit(req, {
+      action: 'knowledge.search', targetType: 'chat', targetId: chatId,
+      details: { via: 'chat', chars: i.query.length, collections: i.collections, hits: i.hits.length, documents: [...new Set(i.hits.map((h) => h.documentId))], ...(config.AUDIT_LOG_PROMPTS ? { query: i.query } : {}) },
+    })),
+  };
+}
+
+/** MCP servers of the user (if wanted); every tool call is audited. */
+async function mcpTools(req: Req, use: boolean) {
+  const servers = use ? await db.select().from(mcpServers).where(and(eq(mcpServers.userId, req.user!.id), eq(mcpServers.enabled, true))) : [];
+  return openMcpSession(servers, (i) =>
+    void audit(req, { action: 'mcp.tool_call', targetType: 'mcp_server', targetId: i.server.id, success: i.ok, details: { server: i.server.name, tool: i.tool, ms: i.ms, error: i.error } }),
+  );
+}
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** Runs the model and passes every event for the browser to send. */
+async function streamAnswer(rec: AnswerRecorder, opts: Parameters<typeof streamText>[0], send: (ev: StreamEvent) => void) {
+  const result = streamText(opts);
+  for await (const part of result.fullStream) {
+    const ev = rec.handle(part);
+    if (ev) send(ev);
+  }
+}
+
+function startNdjson(res: import('express').Response) {
+  res.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('cache-control', 'no-cache, no-transform');
+  res.setHeader('x-accel-buffering', 'no'); // nginx ingress: disable buffering
+  res.flushHeaders();
+  const abort = new AbortController();
+  res.on('close', () => { if (!res.writableFinished) abort.abort(); });
+  return { send: (o: unknown) => res.write(JSON.stringify(o) + '\n'), abort };
 }
 
 /**
@@ -101,123 +143,53 @@ chatsRouter.post('/:id/messages', async (req, res) => {
   const user = req.user!;
   const p = sendBody.safeParse(req.body);
   if (!p.success) return res.status(400).json({ error: 'Ungültige Eingabe', issues: p.error.issues });
-  const { content, modelId, attachmentIds, useMcp, useKnowledge } = p.data;
+  const body: SendBody = p.data;
 
   const [chat] = await db.select().from(chats).where(own(user.id, req.params.id));
   if (!chat) return res.status(404).end();
-  const [mp] = await db.select().from(models).innerJoin(providers, eq(models.providerId, providers.id))
-    .where(and(eq(models.id, modelId), eq(models.enabled, true), eq(providers.enabled, true)));
+  const mp = await availableModel(body.modelId);
   if (!mp) return res.status(400).json({ error: 'Modell nicht verfügbar' });
-  const { models: model, providers: provider } = mp;
+  const { model, provider } = mp;
 
-  // History + attachments (only the user's own files)
-  const history = await db.select().from(messages).where(eq(messages.chatId, chat.id)).orderBy(asc(messages.createdAt));
-  const allAttIds = [...new Set([...history.flatMap((m) => m.attachmentIds), ...attachmentIds])];
-  const atts = allAttIds.length
-    ? await db.select().from(attachments).where(and(inArray(attachments.id, allAttIds), eq(attachments.userId, user.id)))
-    : [];
-  const attMap = new Map(atts.map((a) => [a.id, a]));
-  if (attachmentIds.some((id) => !attMap.has(id))) return res.status(400).json({ error: 'Unbekannter Anhang' });
+  const { history, attMap } = await loadHistory(chat.id, user.id, body.attachmentIds);
+  if (body.attachmentIds.some((id) => !attMap.has(id))) return res.status(400).json({ error: 'Unbekannter Anhang' });
+  const modelMessages = toModelMessages(history, body, attMap, model.supportsImages);
 
-  const modelMessages: ModelMessage[] = history.map((m) =>
-    m.role === 'user'
-      ? { role: 'user', content: buildUserContent(m.content, m.attachmentIds.map((id) => attMap.get(id)!).filter(Boolean), model.supportsImages) }
-      : { role: 'assistant', content: m.content || '(leer)' },
-  );
-  modelMessages.push({ role: 'user', content: buildUserContent(content, attachmentIds.map((id) => attMap.get(id)!), model.supportsImages) });
-
-  const [userMsg] = await db.insert(messages).values({ chatId: chat.id, role: 'user', content, attachmentIds, modelId: model.id }).returning();
+  const [userMsg] = await db.insert(messages).values({ chatId: chat.id, role: 'user', content: body.content, attachmentIds: body.attachmentIds, modelId: model.id }).returning();
   await audit(req, {
     action: 'chat.prompt', targetType: 'chat', targetId: chat.id,
-    details: { model: model.modelId, provider: provider.name, chars: content.length, attachments: attachmentIds.length, ...(config.AUDIT_LOG_PROMPTS ? { prompt: content } : {}) },
+    details: { model: model.modelId, provider: provider.name, chars: body.content.length, attachments: body.attachmentIds.length, ...(config.AUDIT_LOG_PROMPTS ? { prompt: body.content } : {}) },
   });
 
-  res.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
-  res.setHeader('cache-control', 'no-cache, no-transform');
-  res.setHeader('x-accel-buffering', 'no'); // nginx ingress: disable buffering
-  res.flushHeaders();
-  const send = (o: unknown) => res.write(JSON.stringify(o) + '\n');
-
-  const abort = new AbortController();
-  res.on('close', () => { if (!res.writableFinished) abort.abort(); });
-
-  const servers = useMcp ? await db.select().from(mcpServers).where(and(eq(mcpServers.userId, user.id), eq(mcpServers.enabled, true))) : [];
-  const mcp = await openMcpSession(servers, (i) =>
-    void audit(req, { action: 'mcp.tool_call', targetType: 'mcp_server', targetId: i.server.id, success: i.ok, details: { server: i.server.name, tool: i.tool, ms: i.ms, error: i.error } }),
-  );
+  const { send, abort } = startNdjson(res);
   const lang = langOf(req);
+  const mcp = await mcpTools(req, body.useMcp);
   if (mcp.status.length) send({ t: 'mcp', status: mcp.status.map((s) => ({ ...s, error: s.error && tr(s.error, lang) })) });
-
-  const tools = { ...mcp.tools };
-  let systemExtra = '';
-  if (config.KNOWLEDGE_ENABLED && useKnowledge && (await getEmbeddingSettings())) {
-    const cols = await accessibleCollections(user);
-    if (cols.length) {
-      tools.wissensdatenbank_suchen = knowledgeTool(cols, (i) => void audit(req, {
-        action: 'knowledge.search', targetType: 'chat', targetId: chat.id,
-        details: { via: 'chat', chars: i.query.length, collections: i.collections, hits: i.hits.length, documents: [...new Set(i.hits.map((h) => h.documentId))], ...(config.AUDIT_LOG_PROMPTS ? { query: i.query } : {}) },
-      }));
-      systemExtra = `\nDir steht die interne Wissensdatenbank zur Verfügung (Tool wissensdatenbank_suchen). Nutze sie bei Fragen zu internen Themen, bevor du antwortest.
-Belege Aussagen aus der Wissensdatenbank mit [nr] und schließe mit einer Liste "Quellen" als Markdown-Links [nr] [titel](url). Erfinde keine Quellen; wenn nichts gefunden wird, sage das.`;
-    }
-  }
+  const kb = await knowledgeTools(req, chat.id, body.useKnowledge);
+  const tools = { ...mcp.tools, ...kb };
 
   const started = Date.now();
-  const parts: MessagePart[] = [];
-  let text = '';
-  const pushText = (d: string) => {
-    text += d;
-    const last = parts.at(-1);
-    if (last?.type === 'text') last.text += d; else parts.push({ type: 'text', text: d });
-  };
-  let usage: { inputTokens?: number; outputTokens?: number } | undefined;
-  let error: string | undefined;
-
+  const rec = new AnswerRecorder();
   try {
-    const result = streamText({
+    await streamAnswer(rec, {
       model: languageModel(provider, model),
-      system: SYSTEM_PROMPT() + systemExtra + (lang === 'en' ? '\nThe user interface is set to English: answer in English unless the user writes in another language.' : ''),
+      system: systemPrompt(Object.keys(kb).length > 0, lang),
       messages: modelMessages,
       tools: Object.keys(tools).length ? tools : undefined,
       stopWhen: stepCountIs(config.MAX_TOOL_STEPS),
       abortSignal: abort.signal,
-    });
-    for await (const part of result.fullStream) {
-      switch (part.type) {
-        case 'text-delta':
-          pushText(part.text); send({ t: 'text', d: part.text }); break;
-        case 'tool-call':
-          parts.push({ type: 'tool', toolCallId: part.toolCallId, name: part.toolName, input: part.input });
-          send({ t: 'tool-call', id: part.toolCallId, name: part.toolName, input: part.input }); break;
-        case 'tool-result': {
-          const tp = parts.find((x) => x.type === 'tool' && x.toolCallId === part.toolCallId) as Extract<MessagePart, { type: 'tool' }> | undefined;
-          const out = JSON.stringify(part.output ?? null);
-          const trimmed = out.length > 20_000 ? out.slice(0, 20_000) + '…' : out;
-          if (tp) tp.output = trimmed;
-          send({ t: 'tool-result', id: part.toolCallId, output: trimmed }); break;
-        }
-        case 'tool-error': {
-          const tp = parts.find((x) => x.type === 'tool' && x.toolCallId === part.toolCallId) as Extract<MessagePart, { type: 'tool' }> | undefined;
-          if (tp) tp.error = String(part.error);
-          send({ t: 'tool-error', id: part.toolCallId, error: String(part.error) }); break;
-        }
-        case 'error':
-          error = part.error instanceof Error ? part.error.message : String(part.error);
-          send({ t: 'error', message: tr(error, lang) }); break;
-        case 'finish':
-          usage = { inputTokens: part.totalUsage.inputTokens, outputTokens: part.totalUsage.outputTokens }; break;
-      }
-    }
+    }, (ev) => send(ev.t === 'error' ? { ...ev, message: tr(ev.message, lang) } : ev));
   } catch (e) {
-    error = abort.signal.aborted ? 'abgebrochen' : e instanceof Error ? e.message : String(e);
+    rec.error = abort.signal.aborted ? 'abgebrochen' : errorText(e);
     logger.warn({ err: e, chat: chat.id }, 'stream failed');
-    send({ t: 'error', message: tr(error, lang) });
+    send({ t: 'error', message: tr(rec.error, lang) });
   } finally {
     await mcp.close();
   }
 
+  const { text, parts, usage, error } = rec;
   const [asst] = await db.insert(messages).values({ chatId: chat.id, role: 'assistant', content: text, parts, modelId: model.id, usage }).returning();
-  const title = history.length === 0 ? content.replace(/\s+/g, ' ').trim().slice(0, 60) : undefined;
+  const title = history.length === 0 ? chatTitle(body.content) : undefined;
   await db.update(chats).set({ updatedAt: new Date(), modelId: model.id, ...(title ? { title } : {}) }).where(eq(chats.id, chat.id));
 
   await audit(req, {
@@ -225,7 +197,7 @@ Belege Aussagen aus der Wissensdatenbank mit [nr] und schließe mit einer Liste 
     details: {
       model: model.modelId, provider: provider.name, ms: Date.now() - started,
       inputTokens: usage?.inputTokens, outputTokens: usage?.outputTokens,
-      toolCalls: parts.filter((x) => x.type === 'tool').map((x) => (x as { name: string }).name), error,
+      toolCalls: rec.toolNames(), error,
       userMessageId: userMsg.id, assistantMessageId: asst.id,
     },
   });

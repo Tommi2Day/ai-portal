@@ -1,4 +1,4 @@
-import { httpFetch, type Connector, type DocRef } from './types.js';
+import { httpFetch, trimSlashes, type Connector, type DocRef } from './types.js';
 import { KNOWLEDGE_EXT } from '../../extract.js';
 import { config } from '../../config.js';
 
@@ -29,8 +29,8 @@ type Item = {
  * Required application permission: Sites.Selected (recommended, grant per site) or Sites.Read.All / Files.Read.All.
  */
 export function sharepointConnector(cfg: SharePointConfig, sec: SharePointSecret): Connector {
-  const graph = (cfg.graphBaseUrl ?? 'https://graph.microsoft.com').replace(/\/+$/, '') + '/v1.0';
-  const login = (cfg.loginBaseUrl ?? 'https://login.microsoftonline.com').replace(/\/+$/, '');
+  const graph = trimSlashes(cfg.graphBaseUrl ?? 'https://graph.microsoft.com') + '/v1.0';
+  const login = trimSlashes(cfg.loginBaseUrl ?? 'https://login.microsoftonline.com');
   let token: { value: string; exp: number } | null = null;
   const maxBytes = config.KNOWLEDGE_MAX_FILE_MB * 1024 * 1024;
 
@@ -38,7 +38,7 @@ export function sharepointConnector(cfg: SharePointConfig, sec: SharePointSecret
     if (token && token.exp > Date.now() + 60_000) return token.value;
     const body = new URLSearchParams({
       client_id: cfg.clientId, client_secret: sec.clientSecret, grant_type: 'client_credentials',
-      scope: `${cfg.graphBaseUrl ? cfg.graphBaseUrl.replace(/\/+$/, '') : 'https://graph.microsoft.com'}/.default`,
+      scope: `${trimSlashes(cfg.graphBaseUrl ?? 'https://graph.microsoft.com')}/.default`,
     });
     const r = (await (await httpFetch(`${login}/${cfg.tenantId}/oauth2/v2.0/token`, { method: 'POST', body })).json()) as { access_token: string; expires_in: number };
     token = { value: r.access_token, exp: Date.now() + r.expires_in * 1000 };
@@ -51,7 +51,7 @@ export function sharepointConnector(cfg: SharePointConfig, sec: SharePointSecret
     if (cfg.userPrincipalName) return (await get<{ id: string }>(`/users/${encodeURIComponent(cfg.userPrincipalName)}/drive`)).id;
     if (!cfg.siteUrl) throw new Error('siteUrl oder userPrincipalName erforderlich');
     const u = new URL(cfg.siteUrl);
-    const site = await get<{ id: string }>(`/sites/${u.hostname}:${u.pathname.replace(/\/+$/, '') || '/'}`);
+    const site = await get<{ id: string }>(`/sites/${u.hostname}:${trimSlashes(u.pathname) || '/'}`);
     const drives = await get<{ value: { id: string; name: string }[] }>(`/sites/${site.id}/drives`);
     const d = cfg.driveName ? drives.value.find((x) => x.name === cfg.driveName) : drives.value[0];
     if (!d) throw new Error(`Bibliothek ${cfg.driveName ?? ''} nicht gefunden (vorhanden: ${drives.value.map((x) => x.name).join(', ')})`);

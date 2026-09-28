@@ -8,7 +8,8 @@ const bool = z
 const schema = z.object({
   PORT: z.coerce.number().default(8080),
   PUBLIC_URL: z.string().default('http://localhost:8080'),
-  DATABASE_URL: z.string().default('postgres://aiportal:aiportal@localhost:5432/aiportal'),
+  /** Default without password: set DATABASE_URL (or PGPASSWORD) for anything but a trust-auth local database. */
+  DATABASE_URL: z.string().default('postgres://aiportal@localhost:5432/aiportal'),
   /** Signs session JWTs. >= 32 chars. */
   SESSION_SECRET: z.string().min(32),
   /** 32-byte key (base64) for AES-256-GCM encryption of provider keys / MCP credentials. */

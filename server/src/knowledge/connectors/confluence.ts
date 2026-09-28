@@ -1,4 +1,4 @@
-import { httpFetch, type Connector, type DocRef } from './types.js';
+import { httpFetch, trimSlashes, type Connector, type DocRef } from './types.js';
 import { htmlToHtmlText } from '../../extract.js';
 
 export interface ConfluenceConfig {
@@ -11,7 +11,7 @@ export interface ConfluenceConfig {
 export interface ConfluenceSecret { email?: string; apiToken?: string; token?: string }
 
 export function confluenceConnector(cfg: ConfluenceConfig, sec: ConfluenceSecret): Connector {
-  const base = cfg.baseUrl.replace(/\/+$/, '');
+  const base = trimSlashes(cfg.baseUrl);
   const headers: Record<string, string> = { accept: 'application/json' };
   if (cfg.deployment === 'cloud') headers.authorization = 'Basic ' + Buffer.from(`${sec.email}:${sec.apiToken}`).toString('base64');
   else headers.authorization = `Bearer ${sec.token}`;

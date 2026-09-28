@@ -223,3 +223,5 @@ export type KnowledgeCollection = typeof knowledgeCollections.$inferSelect;
 export type Provider = typeof providers.$inferSelect;
 export type Model = typeof models.$inferSelect;
 export type McpServer = typeof mcpServers.$inferSelect;
+export type Message = typeof messages.$inferSelect;
+export type Attachment = typeof attachments.$inferSelect;

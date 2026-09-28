@@ -233,7 +233,7 @@ adminRouter.get('/audit', async (req, res) => {
 
   if (q.format === 'csv') {
     await audit(req, { action: 'audit.export', details: { filter: { ...q, format: undefined }, rows: rows.length } });
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const esc = (v: unknown) => `"${String(v ?? '').replaceAll('"', '""')}"`;
     const header = 'ts,username,action,target_type,target_id,success,ip,details';
     const lines = rows.map((r) => [r.ts.toISOString(), r.username, r.action, r.targetType, r.targetId, r.success, r.ip, JSON.stringify(r.details ?? {})].map(esc).join(','));
     res.setHeader('content-type', 'text/csv; charset=utf-8');

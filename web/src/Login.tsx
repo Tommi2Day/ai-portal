@@ -44,7 +44,7 @@ export function Login({ onDone }: { onDone: () => void }) {
             )}
             <label>{t('Benutzername')}<input autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} /></label>
             <label>{t('Passwort')}<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-            <button className="primary" disabled={busy || !username || !password}>{t('Anmelden')}</button>
+            <button type="submit" className="primary" disabled={busy || !username || !password}>{t('Anmelden')}</button>
           </>
         )}
         {cfg.oidc && (

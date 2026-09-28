@@ -5,7 +5,7 @@ import { convert as htmlToText } from 'html-to-text';
 
 const xmlText = (xml: string, tag: string) =>
   [...xml.matchAll(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'g'))].map((m) => decodeXml(m[1]));
-const decodeXml = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+const decodeXml = (s: string) => s.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&apos;', "'").replaceAll('&amp;', '&');
 
 async function pptxText(data: Buffer) {
   const zip = await JSZip.loadAsync(data);
@@ -19,7 +19,8 @@ async function pptxText(data: Buffer) {
 async function xlsxText(data: Buffer) {
   const zip = await JSZip.loadAsync(data);
   const shared = zip.file('xl/sharedStrings.xml') ? [...(await zip.file('xl/sharedStrings.xml')!.async('string')).matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => xmlText(m[1], 't').join('')) : [];
-  const sheets = Object.keys(zip.files).filter((f) => /^xl\/worksheets\/sheet\d+\.xml$/.test(f)).sort();
+  const sheets = Object.keys(zip.files).filter((f) => /^xl\/worksheets\/sheet\d+\.xml$/.test(f))
+    .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]));
   const out: string[] = [];
   for (const f of sheets) {
     const xml = await zip.file(f)!.async('string');

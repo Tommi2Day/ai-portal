@@ -4,7 +4,7 @@ import type { User } from '../db/schema.js';
 import { LoginError, upsertExternalUser } from './provision.js';
 
 /** RFC 4515 filter value escaping. */
-export const escapeFilter = (s: string) => s.replace(/[\\*()\0]/g, (c) => '\\' + c.charCodeAt(0).toString(16).padStart(2, '0'));
+export const escapeFilter = (s: string) => s.replaceAll(/[\\*()\0]/g, (c) => '\\' + c.codePointAt(0)!.toString(16).padStart(2, '0'));
 
 function client() {
   return new Client({

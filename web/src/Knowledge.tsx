@@ -93,7 +93,7 @@ function EmbeddingSettings({ onSaved }: { onSaved: () => void }) {
         )}
         <label>{t('Modell-ID')}<input required value={f.modelId} onChange={(e) => setF({ ...f, modelId: e.target.value })} /></label>
         <label>{t('Dimensionen (optional)')}<input type="number" value={f.dimensions} onChange={(e) => setF({ ...f, dimensions: e.target.value })} /></label>
-        <div><button className="primary">{t('Speichern & testen')}</button></div>
+        <div><button type="submit" className="primary">{t('Speichern & testen')}</button></div>
       </form>
       {msg && <p className="small">{msg}</p>}
     </div>
@@ -115,7 +115,7 @@ function NewCollection({ onDone, onError }: { onDone: () => void; onError: (e: s
       <label>{t('Beschreibung (hilft dem Modell)')}<input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder={t('Handbücher, Störungen, Anleitungen')} /></label>
       <label>{t('Gruppen (kommagetrennt)')}<input value={f.groups} disabled={f.public} onChange={(e) => setF({ ...f, groups: e.target.value })} placeholder={t('IT-Team, AiPortal.Admin')} /></label>
       <label className="toggle"><input type="checkbox" checked={f.public} onChange={(e) => setF({ ...f, public: e.target.checked })} /> {t('für alle angemeldeten Benutzer')}</label>
-      <div><button className="primary">{t('Anlegen')}</button></div>
+      <div><button type="submit" className="primary">{t('Anlegen')}</button></div>
     </form>
   );
 }
@@ -281,7 +281,7 @@ function NewSource({ collectionId, onDone }: { collectionId: string; onDone: () 
         {input('driveName', 'Bibliothek (optional)', { placeholder: 'Dokumente' })}
         {input('folderPath', 'Unterordner (optional)', { placeholder: 'Handbücher/Betrieb' })}
       </>}
-      <div><button className="primary">{t('Anlegen & synchronisieren')}</button></div>
+      <div><button type="submit" className="primary">{t('Anlegen & synchronisieren')}</button></div>
       {error && <p className="error">{error}</p>}
     </form>
   );

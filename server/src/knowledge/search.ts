@@ -47,7 +47,7 @@ export async function hybridSearch(query: string, collectionIds: string[], k = 8
     LIMIT 40`, [collectionIds, embedder.key, vec]);
   // OR over significant terms: natural-language questions rarely match with AND semantics
   const terms = [...new Set((query.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}._-]{2,}/gu) ?? []).filter((t) => !STOP.has(t)))].slice(0, 20);
-  const tsq = terms.map((t) => `'${t.replace(/'/g, "''")}'`).join(' | ') || "''";
+  const tsq = terms.map((t) => `'${t.replaceAll("'", "''")}'`).join(' | ') || "''";
   const textQ = pool.query<{ id: string }>(`
     SELECT id FROM knowledge_chunks, to_tsquery('simple', $2) q
     WHERE collection_id = ANY($1::uuid[]) AND tsv @@ q

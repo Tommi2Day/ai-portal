@@ -29,7 +29,7 @@ export async function upsertExternalUser(p: {
     email: p.email ?? null,
     externalId: p.externalId,
     lastLoginAt: new Date(),
-    ...(p.groups ? { groups: [...new Set(p.groups)].sort() } : {}),
+    ...(p.groups ? { groups: [...new Set(p.groups)].sort((a, b) => a.localeCompare(b)) } : {}),
     ...(p.roleFromIdp ? { role: p.roleFromIdp } : {}),
   };
   if (byName) {

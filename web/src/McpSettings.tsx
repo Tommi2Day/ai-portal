@@ -76,7 +76,7 @@ export function McpSettings() {
         </label>
         <label>{t('Header-Name')}<input value={form.headerName} onChange={(e) => setForm({ ...form, headerName: e.target.value })} /></label>
         <label>{t('Header-Wert')}<input type="password" value={form.headerValue} onChange={(e) => setForm({ ...form, headerValue: e.target.value })} placeholder="Bearer …" /></label>
-        <div><button className="primary">{t('Hinzufügen')}</button></div>
+        <div><button type="submit" className="primary">{t('Hinzufügen')}</button></div>
       </form>
       {error && <p className="error">{error}</p>}
 
@@ -157,7 +157,7 @@ function KnowledgeMcp() {
         <label>{t('Gültigkeit')}<select value={days} onChange={(e) => setDays(e.target.value)}>
           <option value="30">{t('30 Tage')}</option><option value="90">{t('90 Tage')}</option><option value="365">{t('1 Jahr')}</option>
         </select></label>
-        <div><button className="primary">{t('Token erstellen')}</button></div>
+        <div><button type="submit" className="primary">{t('Token erstellen')}</button></div>
       </form>
 
       <h3>{t('Einrichtung')}</h3>

@@ -10,7 +10,7 @@ Provider credentials, AI models, knowledge collections and sources are **not** e
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP port |
 | `PUBLIC_URL` | `http://localhost:8080` | External base URL. Used for the OIDC redirect URI and absolute links in MCP results. |
-| `DATABASE_URL` | `postgres://aiportal:aiportal@localhost:5432/aiportal` | PostgreSQL connection string (pgvector required) |
+| `DATABASE_URL` | `postgres://aiportal@localhost:5432/aiportal` | PostgreSQL connection string (pgvector required); the default has no password — set the full URL (or `PGPASSWORD`) |
 | `SESSION_SECRET` | – (required) | ≥ 32 characters; signs session and OIDC flow cookies |
 | `ENCRYPTION_KEY` | – (required) | 32 bytes, base64; AES-256-GCM key for stored credentials |
 | `SESSION_TTL_HOURS` | `12` | Session lifetime |

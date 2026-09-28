@@ -14,6 +14,13 @@ export interface Connector {
   list(): AsyncIterable<DocRef>;
 }
 
+/** Removes trailing slashes (no regex: `/\/+$/` backtracks on long inputs). */
+export function trimSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s[end - 1] === '/') end--;
+  return s.slice(0, end);
+}
+
 /** fetch with timeout and retry on 429/502/503/504 (honours Retry-After). */
 export async function httpFetch(url: string, init: RequestInit = {}, tries = 4): Promise<Response> {
   for (let attempt = 1; ; attempt++) {

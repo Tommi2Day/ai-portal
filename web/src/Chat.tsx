@@ -3,6 +3,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { t } from './i18n';
 import { api, streamMessage, type Attachment, type ChatSummary, type Message, type ModelOpt, type Part, type StreamEvent } from './api';
+import { STREAMING, answerText, applyEvent, defaultModelId, mcpProblems, messageParts, toolOutput, toolStatus, updateStreaming } from './chatStream';
 
 // computed at render time so they follow the selected language
 const suggestions = () => [
@@ -12,6 +13,7 @@ const suggestions = () => [
   { label: t('Text überarbeiten'), text: t('Überarbeite den folgenden Text – klarer, kürzer, gleicher Inhalt:') + '\n\n' },
 ];
 const chatTitle = (title: string) => (title === 'Neuer Chat' ? t('Neuer Chat') : title);
+const without = (list: Attachment[], id: string) => list.filter((x) => x.id !== id);
 
 export function Chat() {
   const [chats, setChats] = useState<ChatSummary[]>([]);
@@ -39,7 +41,8 @@ export function Chat() {
     api<{ enabled: boolean; collections: { name: string }[] }>('/knowledge/collections').then(setKb).catch(() => setKb(null));
     api<ModelOpt[]>('/models').then((m) => {
       setModels(m);
-      setModelId((cur) => cur || (m.find((x) => x.isDefault) ?? m[0])?.id || '');
+      const preset = defaultModelId(m);
+      setModelId((cur) => cur || preset);
     });
   }, []);
 
@@ -87,31 +90,20 @@ export function Chat() {
       chatId = c.id; setActiveId(c.id);
     }
     const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text, parts: [], attachmentIds: pending.map((p) => p.id) };
-    const asst: Message = { id: 'streaming', role: 'assistant', content: '', parts: [], attachmentIds: [] };
+    const asst: Message = { id: STREAMING, role: 'assistant', content: '', parts: [], attachmentIds: [] };
     setMessages((m) => [...m, userMsg, asst]);
     setInput(''); setPending([]);
 
-    const update = (fn: (parts: Part[]) => Part[], extra: Partial<Message> = {}) =>
-      setMessages((m) => m.map((x) => (x.id === 'streaming' ? { ...x, ...extra, parts: fn(x.parts) } : x)));
-
     const onEvent = (e: StreamEvent) => {
-      switch (e.t) {
-        case 'text':
-          update((p) => {
-            const last = p.at(-1);
-            return last?.type === 'text' ? [...p.slice(0, -1), { ...last, text: last.text + e.d }] : [...p, { type: 'text', text: e.d }];
-          });
-          break;
-        case 'tool-call': update((p) => [...p, { type: 'tool', toolCallId: e.id, name: e.name, input: e.input }]); break;
-        case 'tool-result': update((p) => p.map((x) => (x.type === 'tool' && x.toolCallId === e.id ? { ...x, output: e.output } : x))); break;
-        case 'tool-error': update((p) => p.map((x) => (x.type === 'tool' && x.toolCallId === e.id ? { ...x, error: e.error } : x))); break;
-        case 'mcp': {
-          const bad = e.status.filter((s) => !s.ok);
-          if (bad.length) setNotice(t('MCP nicht erreichbar: {list}', { list: bad.map((b) => `${b.name} (${b.error})`).join(', ') }));
-          break;
-        }
-        case 'error': setNotice(t('Fehler: {message}', { message: e.message })); break;
-        case 'done': setMessages((m) => m.map((x) => (x.id === 'streaming' ? { ...x, id: e.messageId, usage: e.usage } : x))); break;
+      if (e.t === 'mcp') {
+        const list = mcpProblems(e.status);
+        if (list) setNotice(t('MCP nicht erreichbar: {list}', { list }));
+      } else if (e.t === 'error') {
+        setNotice(t('Fehler: {message}', { message: e.message }));
+      } else if (e.t === 'done') {
+        setMessages((m) => updateStreaming(m, (x) => ({ ...x, id: e.messageId, usage: e.usage })));
+      } else {
+        setMessages((m) => updateStreaming(m, (x) => ({ ...x, parts: applyEvent(x.parts, e) })));
       }
     };
 
@@ -121,7 +113,7 @@ export function Chat() {
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setNotice((e as Error).message);
     } finally {
-      setMessages((m) => m.map((x) => (x.id === 'streaming' ? { ...x, id: crypto.randomUUID() } : x)));
+      setMessages((m) => updateStreaming(m, (x) => ({ ...x, id: crypto.randomUUID() })));
       setBusy(false); abortRef.current = null;
       loadChats();
     }
@@ -131,12 +123,14 @@ export function Chat() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
+  const removePending = (id: string) => setPending((p) => without(p, id));
+
   const composer = (
     <div className="composer" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); upload(e.dataTransfer.files); }}>
       {pending.length > 0 && (
         <div className="chips">
           {pending.map((a) => (
-            <span key={a.id} className="chip">{a.filename}<button onClick={() => setPending((p) => p.filter((x) => x.id !== a.id))}>×</button></span>
+            <span key={a.id} className="chip">{a.filename}<button type="button" onClick={() => removePending(a.id)}>×</button></span>
           ))}
         </div>
       )}
@@ -192,7 +186,7 @@ export function Chat() {
         ) : (
           <>
             <div className="messages">
-              {messages.map((m) => <MessageView key={m.id} m={m} attNames={attNames} streaming={m.id === 'streaming'} />)}
+              {messages.map((m) => <MessageView key={m.id} m={m} attNames={attNames} streaming={m.id === STREAMING} />)}
               <div ref={endRef} />
             </div>
             {notice && <p className="notice">{notice}</p>}
@@ -217,29 +211,29 @@ function MessageView({ m, attNames, streaming }: { m: Message; attNames: Record<
       </div>
     );
   }
-  const parts: Part[] = m.parts.length ? m.parts : m.content ? [{ type: 'text', text: m.content }] : [];
+  const parts = messageParts(m);
   return (
     <div className="msg assistant">
-      {parts.map((p, i) =>
-        p.type === 'text' ? (
-          <div key={i} className="md"><Markdown remarkPlugins={[remarkGfm]}>{p.text}</Markdown></div>
-        ) : p.name === 'wissensdatenbank_suchen' ? (
-          <KnowledgePart key={i} p={p} />
-        ) : (
-          <details key={i} className={`tool ${p.error ? 'err' : ''}`}>
-            <summary>{p.error ? '✕' : p.output === undefined ? '…' : '✓'} Tool <code>{p.name}</code></summary>
-            <pre>{JSON.stringify(p.input, null, 2)}</pre>
-            {p.output !== undefined && <pre>{typeof p.output === 'string' ? p.output : JSON.stringify(p.output, null, 2)}</pre>}
-            {p.error && <pre>{p.error}</pre>}
-          </details>
-        ),
-      )}
+      {parts.map((p, i) => <PartView key={i} p={p} />)}
       {streaming && parts.length === 0 && <div className="typing">…</div>}
       {m.usage?.outputTokens != null && <div className="meta">{m.usage.inputTokens} → {m.usage.outputTokens} {t('Tokens')}</div>}
       {!streaming && parts.length > 0 && (
-        <button className="ghost small" onClick={() => navigator.clipboard.writeText(parts.filter((p) => p.type === 'text').map((p) => (p as { text: string }).text).join(''))}>{t('Kopieren')}</button>
+        <button type="button" className="ghost small" onClick={() => navigator.clipboard.writeText(answerText(parts))}>{t('Kopieren')}</button>
       )}
     </div>
+  );
+}
+
+function PartView({ p }: { p: Part }) {
+  if (p.type === 'text') return <div className="md"><Markdown remarkPlugins={[remarkGfm]}>{p.text}</Markdown></div>;
+  if (p.name === 'wissensdatenbank_suchen') return <KnowledgePart p={p} />;
+  return (
+    <details className={`tool ${p.error ? 'err' : ''}`}>
+      <summary>{toolStatus(p)} Tool <code>{p.name}</code></summary>
+      <pre>{JSON.stringify(p.input, null, 2)}</pre>
+      {p.output !== undefined && <pre>{toolOutput(p)}</pre>}
+      {p.error && <pre>{p.error}</pre>}
+    </details>
   );
 }
 

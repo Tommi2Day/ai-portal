@@ -55,3 +55,13 @@ describe('chunkText', () => {
     expect(chunks.some((c) => body(c, 'T').startsWith('# Heading'))).toBe(true);
   });
 });
+
+describe('trimSlashes', () => {
+  it('removes trailing slashes only', async () => {
+    const { trimSlashes } = await import('../src/knowledge/connectors/types.js');
+    expect(trimSlashes('https://wiki.acme.example/confluence///')).toBe('https://wiki.acme.example/confluence');
+    expect(trimSlashes('/sites/it/')).toBe('/sites/it');
+    expect(trimSlashes('/')).toBe('');
+    expect(trimSlashes('no-slash')).toBe('no-slash');
+  });
+});

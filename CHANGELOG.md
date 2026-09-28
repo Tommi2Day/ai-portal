@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Default `DATABASE_URL` without a password (`postgres://aiportal@localhost:5432/aiportal`): set the full URL or
+  `PGPASSWORD` for anything but a trust-auth local database.
+- Code quality (SonarQube): the chat stream handling moved into `server/src/ai/answer.ts` (`AnswerRecorder`, prompt and
+  message building) and `web/src/chatStream.ts`; `chunkText` and the knowledge sync split into smaller functions;
+  no regexes with super-linear backtracking (`trimSlashes()`), `replaceAll`, explicit `type` on form buttons.
+- Tests: chat answer recording, Confluence and SharePoint connectors, LDAP sign-in, embedding factory, MCP session,
+  login page and MCP settings page (jsdom); coverage of `server/` and `web/` together above 30 %.
+
+### Fixed
+
+- `sort()` without compare function for LDAP/OIDC groups (now `localeCompare`) and XLSX sheets (now numeric, `sheet2`
+  before `sheet10`).
+
 ## [0.0.2] - 2026-09-28
 
 AWS Bedrock without stored secrets: IAM role with self-renewing short-term API keys (optionally assuming a role), and

@@ -78,7 +78,7 @@ function Users({ me }: { me: Me }) {
         <label>{t('Anzeigename')}<input value={f.displayName} onChange={(e) => setF({ ...f, displayName: e.target.value })} /></label>
         <label>{t('Passwort')}<input required type="password" minLength={12} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></label>
         <label>{t('Rolle')}<select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="user">{t('Benutzer')}</option><option value="admin">{t('Admin')}</option></select></label>
-        <div><button className="primary">{t('Anlegen')}</button></div>
+        <div><button type="submit" className="primary">{t('Anlegen')}</button></div>
       </form>
       {error && <p className="error">{error}</p>}
     </>
@@ -207,7 +207,7 @@ function Providers() {
             <label>{t('Basis-URL')} {f.type === 'openai_compatible' ? '' : t('(optional)')}<input type="url" required={f.type === 'openai_compatible'} value={f.baseUrl} onChange={(e) => setF({ ...f, baseUrl: e.target.value })} placeholder={f.type === 'github' ? 'https://models.github.ai/inference' : ''} /></label>
           </>
         )}
-        <div><button className="primary">{t('Anbieter anlegen')}</button></div>
+        <div><button type="submit" className="primary">{t('Anbieter anlegen')}</button></div>
       </form>
 
       <h3>{t('Modellauswahl für Benutzer')}</h3>
@@ -258,7 +258,7 @@ function Providers() {
         <label>{t('Modell-ID')}<input required value={mf.modelId} onChange={(e) => setMf({ ...mf, modelId: e.target.value })} /></label>
         <label>{t('Anzeigename')}<input required value={mf.displayName} onChange={(e) => setMf({ ...mf, displayName: e.target.value })} /></label>
         <label className="toggle"><input type="checkbox" checked={mf.supportsImages} onChange={(e) => setMf({ ...mf, supportsImages: e.target.checked })} /> {t('versteht Bilder')}</label>
-        <div><button className="primary">{t('Modell freigeben')}</button></div>
+        <div><button type="submit" className="primary">{t('Modell freigeben')}</button></div>
       </form>
       {error && <p className="error">{error}</p>}
     </>
@@ -282,7 +282,7 @@ function Audit() {
         <label>{t('Aktion')}<input value={q.action} onChange={(e) => setQ({ ...q, action: e.target.value })} placeholder={t('auth., chat., mcp.')} /></label>
         <label>{t('Von')}<input type="datetime-local" value={q.from} onChange={(e) => setQ({ ...q, from: e.target.value })} /></label>
         <label>{t('Bis')}<input type="datetime-local" value={q.to} onChange={(e) => setQ({ ...q, to: e.target.value })} /></label>
-        <div className="actions"><button className="primary">{t('Filtern')}</button><a className="button" href={`/api/admin/audit?${qs()}&format=csv`}>{t('CSV-Export')}</a></div>
+        <div className="actions"><button type="submit" className="primary">{t('Filtern')}</button><a className="button" href={`/api/admin/audit?${qs()}&format=csv`}>{t('CSV-Export')}</a></div>
       </form>
       <table className="audit">
         <thead><tr><th>{t('Zeit')}</th><th>{t('Benutzer')}</th><th>{t('Aktion')}</th><th>{t('Ziel')}</th><th>{t('IP')}</th><th>{t('Details')}</th></tr></thead>
