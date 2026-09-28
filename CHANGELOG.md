@@ -13,10 +13,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   message building) and `web/src/chatStream.ts`; `chunkText` and the knowledge sync split into smaller functions;
   no regexes with super-linear backtracking (`trimSlashes()`), `replaceAll`, explicit `type` on form buttons.
 - Tests: chat answer recording, Confluence and SharePoint connectors, LDAP sign-in, embedding factory, MCP session,
-  login page and MCP settings page (jsdom); coverage of `server/` and `web/` together above 30 %.
+  login page and MCP settings page (jsdom).
+- API tests (`server/test/api.test.ts`): the real app (`createApp()` in the new `server/src/app.ts`, `main.ts` only
+  starts it) against an in-process PostgreSQL (PGlite with pgvector, dev dependencies `@electric-sql/pglite`,
+  `@electric-sql/pglite-pgvector`, real migrations) and the scripted mock LLM of the integration tests: sign-in, CSRF,
+  users, providers and models, embedding probe, knowledge upload, file-share sync and hybrid search, attachments, chat
+  with knowledge-base and MCP tool calls, the knowledge base as MCP server with access tokens, audit log and CSV export.
+  Coverage of `server/` and `web/` together about 60 % (SonarQube).
 
 ### Fixed
 
+- Bootstrap admin: several replicas starting at the same time on an empty database no longer crash one pod
+  (`onConflictDoNothing`).
 - `sort()` without compare function for LDAP/OIDC groups (now `localeCompare`) and XLSX sheets (now numeric, `sheet2`
   before `sheet10`).
 

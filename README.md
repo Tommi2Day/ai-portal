@@ -97,11 +97,11 @@ cd server && npm ci && npm run dev    # API on :8080, migrations run on start
 cd web && npm ci && npm run dev       # UI on :5173, proxies /api to :8080
 ```
 
-Unit tests (Vitest, no database needed; type-checks the tests first):
+Unit and API tests (Vitest, no external database: the API tests run the real app against an in-process PostgreSQL — PGlite with pgvector — and a scripted mock LLM; type-checks the tests first):
 
 ```bash
-cd server && npm test    # branding, provider connection, encryption, chunking, SSRF guard, path confinement, LDAP escaping, session/CSRF guards, i18n, text extraction
-cd web && npm test       # brand component, UI translations
+cd server && npm test    # API (auth, admin, chat with tool calls, files, knowledge upload/sync/search, MCP), Bedrock auth, connectors, LDAP, embeddings, encryption, chunking, SSRF guard, i18n, text extraction
+cd web && npm test       # login and MCP pages, chat stream handling, model selection, brand component, UI translations
 ```
 
 `npm run test:watch` re-runs tests on changes.

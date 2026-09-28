@@ -64,11 +64,11 @@ cd server && npm ci && npm run dev      # API auf :8080, Migrationen laufen beim
 cd web && npm ci && npm run dev         # UI auf :5173 mit Proxy auf /api
 ```
 
-Unit-Tests (Vitest, ohne Datenbank; die Tests werden vorher typgeprüft):
+Unit- und API-Tests (Vitest, ohne externe Datenbank: die API-Tests starten die echte App gegen ein In-Process-PostgreSQL – PGlite mit pgvector – und ein geskriptetes Mock-LLM; die Tests werden vorher typgeprüft):
 
 ```bash
-cd server && npm test    # Branding, Anbieter-Anbindung, Verschlüsselung, Chunking, SSRF-Schutz, Pfadbegrenzung, LDAP-Escaping, Session/CSRF, i18n, Textextraktion
-cd web && npm test       # Brand-Komponente, UI-Übersetzungen
+cd server && npm test    # API (Anmeldung, Administration, Chat mit Tool-Aufrufen, Dateien, Wissensdatenbank Upload/Sync/Suche, MCP), Bedrock-Anmeldung, Connectoren, LDAP, Embeddings, Verschlüsselung, Chunking, SSRF-Schutz, i18n, Textextraktion
+cd web && npm test       # Anmelde- und MCP-Seite, Chat-Stream, Modellauswahl, Brand-Komponente, UI-Übersetzungen
 ```
 
 Integrationstests starten das Portal gegen echtes PostgreSQL/pgvector, [pg-mcp-server](https://github.com/Tommi2Day/pg-mcp-server) und [oracle-mcp-server](https://github.com/Tommi2Day/oracle-mcp-server) (mit Oracle Free) in Docker; das Modell ist ein geskripteter Mock – geprüft wird die ganze Kette Portal → Modell → MCP-Tool → Datenbank → Antwort, dazu Wissensdatenbank und Anbieter-Anfragen. Details: [server/test/integration](server/test/integration/README.md).
