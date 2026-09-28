@@ -3,7 +3,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { t } from './i18n';
 import { api, streamMessage, type Attachment, type ChatSummary, type Message, type ModelOpt, type Part, type StreamEvent } from './api';
-import { STREAMING, answerText, applyEvent, defaultModelId, mcpProblems, messageParts, toolOutput, toolStatus, updateStreaming } from './chatStream';
+import { STREAMING, answerText, applyToStreaming, defaultModelId, mcpProblems, messageParts, toolOutput, toolStatus, updateStreaming } from './chatStream';
 
 // computed at render time so they follow the selected language
 const suggestions = () => [
@@ -100,10 +100,8 @@ export function Chat() {
         if (list) setNotice(t('MCP nicht erreichbar: {list}', { list }));
       } else if (e.t === 'error') {
         setNotice(t('Fehler: {message}', { message: e.message }));
-      } else if (e.t === 'done') {
-        setMessages((m) => updateStreaming(m, (x) => ({ ...x, id: e.messageId, usage: e.usage })));
       } else {
-        setMessages((m) => updateStreaming(m, (x) => ({ ...x, parts: applyEvent(x.parts, e) })));
+        setMessages(applyToStreaming(e));
       }
     };
 

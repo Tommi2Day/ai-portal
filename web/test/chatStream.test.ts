@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Message, ModelOpt, Part } from '../src/api';
-import { STREAMING, answerText, applyEvent, defaultModelId, mcpProblems, messageParts, toolOutput, toolStatus, updateStreaming } from '../src/chatStream';
+import { STREAMING, answerText, applyEvent, applyToStreaming, defaultModelId, mcpProblems, messageParts, toolOutput, toolStatus, updateStreaming } from '../src/chatStream';
 import { availableLabel } from '../src/availableModels';
 import { setLang } from '../src/i18n';
 
@@ -35,6 +35,14 @@ describe('message helpers', () => {
   it('updates only the streaming message', () => {
     const list = [msg({ id: 'a' }), msg({ id: STREAMING })];
     expect(updateStreaming(list, (x) => ({ ...x, id: 'done' })).map((x) => x.id)).toEqual(['a', 'done']);
+  });
+
+  it('applies stream events to the streaming message', () => {
+    let list = [msg({ id: 'a', content: 'alt' }), msg({ id: STREAMING })];
+    list = applyToStreaming({ t: 'text', d: 'Hallo' })(list);
+    list = applyToStreaming({ t: 'done', messageId: 'm2', usage: { inputTokens: 3, outputTokens: 1 } })(list);
+    expect(list[1]).toMatchObject({ id: 'm2', usage: { inputTokens: 3, outputTokens: 1 }, parts: [{ type: 'text', text: 'Hallo' }] });
+    expect(list[0].id).toBe('a');
   });
 
   it('renders parts, or the content of older messages', () => {

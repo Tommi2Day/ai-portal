@@ -27,6 +27,10 @@ export function applyEvent(parts: Part[], e: StreamEvent): Part[] {
 /** Replaces the streaming message in the list via fn. */
 export const updateStreaming = (list: Message[], fn: (m: Message) => Message) => list.map((x) => (x.id === STREAMING ? fn(x) : x));
 
+/** List updater for a stream event: "done" gives the streaming message its id and usage, content events extend its parts. */
+export const applyToStreaming = (e: StreamEvent) => (list: Message[]) =>
+  updateStreaming(list, (x) => (e.t === 'done' ? { ...x, id: e.messageId, usage: e.usage } : { ...x, parts: applyEvent(x.parts, e) }));
+
 /** Model preselected for a new chat: the default model, else the first one. */
 export const defaultModelId = (models: ModelOpt[]) => (models.find((x) => x.isDefault) ?? models[0])?.id ?? '';
 
