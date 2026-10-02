@@ -135,6 +135,13 @@ function startNdjson(res: import('express').Response) {
   return { send: (o: unknown) => res.write(JSON.stringify(o) + '\n'), abort };
 }
 
+/** A plugin tool must not silently replace an MCP or knowledge tool of the same name: fail instead. */
+function withPluginTools(tools: ToolSet, plugin: ToolSet): ToolSet {
+  const clash = Object.keys(plugin).find((name) => name in tools);
+  if (clash) throw new Error(`Plugin tool name collision: ${clash}`);
+  return { ...tools, ...plugin };
+}
+
 /**
  * Streams the answer as NDJSON lines:
  *  {t:"text",d}  {t:"tool-call",id,name,input}  {t:"tool-result",id,output}  {t:"tool-error",id,error}
@@ -171,11 +178,7 @@ chatsRouter.post('/:id/messages', async (req, res) => {
   const started = Date.now();
   const rec = new AnswerRecorder();
   try {
-    const plugin = await pluginTools(user);
-    for (const name of Object.keys(plugin)) {
-      if (name in mcp.tools || name in kb) throw new Error(`Plugin tool name collision: ${name}`);
-    }
-    const tools = { ...mcp.tools, ...kb, ...plugin };
+    const tools = withPluginTools({ ...mcp.tools, ...kb }, await pluginTools(user));
     await streamAnswer(rec, {
       model: languageModel(provider, model),
       system: systemPrompt(Object.keys(kb).length > 0, lang),
