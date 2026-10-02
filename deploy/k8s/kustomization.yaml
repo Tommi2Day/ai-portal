@@ -17,4 +17,4 @@ resources:
 images:
   - name: ai-portal
     newName: registry.firma.local/ai-portal
-    newTag: "0.2.0"
+    newTag: "0.2.1"

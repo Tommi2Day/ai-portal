@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-02
+
+Docker image: `tommi2day/ai-portal:0.2.1`.
+
 ### Fixed
 
 - Filesystem knowledge source: on Windows, the document `externalId`/`title` kept the OS path separator (`\`)
@@ -142,7 +146,8 @@ server, audit log, German and English UI, Docker Compose and Kubernetes manifest
 - Knowledge base: `chunkText` with `overlap = 0` repeated the complete previous chunk in every chunk (not reachable with
   the default overlap of 300).
 
-[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.2.0...HEAD
+[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.2.1...HEAD
+[0.2.1]: https://github.com/Tommi2Day/ai-portal/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/Tommi2Day/ai-portal/compare/0.0.3...0.2.0
 [0.0.3]: https://github.com/Tommi2Day/ai-portal/compare/0.0.2...0.0.3
 [0.0.2]: https://github.com/Tommi2Day/ai-portal/compare/0.0.1...0.0.2
