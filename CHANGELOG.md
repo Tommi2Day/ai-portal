@@ -5,7 +5,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Database migrations 0006–0008 run at start; no manual steps.
+## [0.0.3] - 2026-10-02
+
+Code-deployed plugins, contributed knowledge articles, self-registration for local accounts, a profile page for
+first LDAP/OIDC sign-in, and document provenance (author/source/last change) throughout the knowledge base.
+Database migrations 0006–0008 run at start; no manual steps. Docker image: `tommi2day/ai-portal:0.0.3`.
 
 ### Added
 
@@ -128,6 +132,7 @@ server, audit log, German and English UI, Docker Compose and Kubernetes manifest
 - Knowledge base: `chunkText` with `overlap = 0` repeated the complete previous chunk in every chunk (not reachable with
   the default overlap of 300).
 
-[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.0.2...HEAD
+[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.0.3...HEAD
+[0.0.3]: https://github.com/Tommi2Day/ai-portal/compare/0.0.2...0.0.3
 [0.0.2]: https://github.com/Tommi2Day/ai-portal/compare/0.0.1...0.0.2
 [0.0.1]: https://github.com/Tommi2Day/ai-portal/releases/tag/0.0.1
