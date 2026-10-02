@@ -5,6 +5,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-02
+
+Version re-baseline: no functional changes since 0.0.3. The numbering continues at 0.2.0 so that it stays above the
+releases already built downstream. Docker image: `tommi2day/ai-portal:0.2.0`.
+
 ## [0.0.3] - 2026-10-02
 
 Code-deployed plugins, contributed knowledge articles, self-registration for local accounts, a profile page for
@@ -132,7 +137,8 @@ server, audit log, German and English UI, Docker Compose and Kubernetes manifest
 - Knowledge base: `chunkText` with `overlap = 0` repeated the complete previous chunk in every chunk (not reachable with
   the default overlap of 300).
 
-[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.0.3...HEAD
+[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/Tommi2Day/ai-portal/compare/0.0.3...0.2.0
 [0.0.3]: https://github.com/Tommi2Day/ai-portal/compare/0.0.2...0.0.3
 [0.0.2]: https://github.com/Tommi2Day/ai-portal/compare/0.0.1...0.0.2
 [0.0.1]: https://github.com/Tommi2Day/ai-portal/releases/tag/0.0.1
