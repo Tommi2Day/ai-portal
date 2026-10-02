@@ -3,6 +3,8 @@ import type { Request, Response, NextFunction } from 'express';
 /**
  * Server messages are written in German (source language). For English UIs they are translated
  * on the way out. Audit entries always keep the German original.
+ * AI provider error messages are the exception: they originate in English from the provider's API,
+ * so for German UIs known phrases are translated back to German (see PROVIDER_PATTERNS_DE below).
  */
 export type Lang = 'de' | 'en';
 
@@ -69,8 +71,26 @@ const PATTERNS: [RegExp, string][] = [
   [/^Embedding fehlgeschlagen: (.*)$/s, 'Embedding failed: $1'],
 ];
 
+/**
+ * AI provider errors (context length, rate limits, …) arrive in English regardless of UI language,
+ * since they come from the provider's API, not from this app. Translated back for German UIs;
+ * English UIs see them unchanged. Matched case-insensitively since wording varies by provider.
+ */
+const PROVIDER_PATTERNS_DE: [RegExp, string][] = [
+  [/context length|context_length|maximum context length|too many tokens|prompt is too long/i, 'Kontextlänge überschritten (zu viele Token für dieses Modell)'],
+  [/rate limit/i, 'Rate-Limit des Anbieters erreicht – bitte später erneut versuchen'],
+  [/invalid api key|incorrect api key|authentication/i, 'Ungültiger API-Schlüssel beim Anbieter'],
+  [/overloaded|capacity|server is busy/i, 'Der Anbieter ist aktuell überlastet – bitte später erneut versuchen'],
+  [/content.*(filter|polic)|safety system/i, 'Antwort durch den Inhaltsfilter des Anbieters blockiert'],
+  [/model.*not found|does not exist/i, 'Modell beim Anbieter nicht gefunden'],
+];
+
 export function tr(msg: string, lang: Lang): string {
-  if (lang === 'de' || !msg) return msg;
+  if (!msg) return msg;
+  if (lang === 'de') {
+    for (const [re, rep] of PROVIDER_PATTERNS_DE) if (re.test(msg)) return rep;
+    return msg;
+  }
   if (EXACT[msg]) return EXACT[msg];
   for (const [re, rep] of PATTERNS) if (re.test(msg)) return msg.replace(re, rep);
   return msg;

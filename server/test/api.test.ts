@@ -409,6 +409,12 @@ describe('files and chat', () => {
     llm.script = () => ({ status: 400, error: 'context length exceeded' });
     const events = await bob.chat(ids.chat, { content: 'Noch eine Frage', modelId: ids.model, useKnowledge: false, useMcp: false });
     expect(events.find((e) => e.t === 'error').message).toContain('context length exceeded');
+
+    // provider errors arrive in English regardless of UI language; German UIs get known phrases translated back
+    const deChat = await admin.post('/api/chats', { modelId: ids.model });
+    const deEvents = await admin.chat(deChat.id, { content: 'Noch eine Frage', modelId: ids.model, useKnowledge: false, useMcp: false });
+    expect(deEvents.find((e) => e.t === 'error').message).toBe('Kontextlänge überschritten (zu viele Token für dieses Modell)');
+    await admin.del(`/api/chats/${deChat.id}`); // keep admin's chat list empty for the later assertion
     expect(await statusOf(bob.chat(ids.chat, { content: 'x', modelId: ids.model, attachmentIds: ['00000000-0000-0000-0000-000000000000'] }))).toBe(400);
     expect(await statusOf(bob.chat(ids.chat, { content: 'x', modelId: '00000000-0000-0000-0000-000000000000' }))).toBe(400);
     expect(await statusOf(bob.chat('00000000-0000-0000-0000-000000000000', { content: 'x', modelId: ids.model }))).toBe(404);

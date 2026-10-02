@@ -55,6 +55,9 @@ Database migrations 0006–0008 run at start; no manual steps.
 - Chat streaming (`streamText` in `server/src/routes/chats.ts`): every provider error (context length, rate limit, …)
   was also dumped to stderr via the AI SDK's default `onError`, even though it is already captured and reported to
   the client; now a no-op `onError` suppresses the redundant logging.
+- AI provider errors (context length, rate limit, invalid API key, overloaded, content filter, model not found) arrive
+  in English from the provider's API regardless of UI language; known phrasings are now translated back to German for
+  German UIs (`server/src/i18n.ts`), matching how the rest of the app's user-facing text is localized.
 
 ## [0.0.2] - 2026-09-28
 
