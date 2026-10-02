@@ -52,4 +52,24 @@ describe('Login', () => {
     expect(dom.$('a.button').textContent).toBe('Mit Microsoft anmelden');
     expect(dom.el.querySelector('.divider')).toBeNull();
   });
+
+  it('registers a local account only when the server offers it', async () => {
+    api.mockResolvedValueOnce({ local: true, ldap: false, registration: true, oidc: null }).mockResolvedValueOnce({ ok: true });
+    await dom.render(<Login onDone={vi.fn()} />);
+    await click(dom.$<HTMLButtonElement>('button.ghost'));
+    const [name, email, username, password] = dom.$$<HTMLInputElement>('input');
+    await type(name, 'Erika Muster'); await type(email, 'erika@example.com');
+    await type(username, 'erika'); await type(password, 'erika-pass-123456');
+    await submit(dom.$('form'));
+    expect(api).toHaveBeenLastCalledWith('/auth/register', {
+      body: { displayName: 'Erika Muster', email: 'erika@example.com', username: 'erika', password: 'erika-pass-123456' },
+    });
+    expect(dom.$('[role=status]').textContent).toContain('freigeben');
+  });
+
+  it('hides registration by default', async () => {
+    api.mockResolvedValueOnce({ local: true, ldap: false, oidc: null });
+    await dom.render(<Login onDone={vi.fn()} />);
+    expect(dom.el.querySelector('button.ghost')).toBeNull();
+  });
 });

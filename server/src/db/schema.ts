@@ -29,6 +29,10 @@ export const users = pgTable('users', {
   /** LDAP group CNs / OIDC group or role claims / admin-assigned for local users. Used for knowledge access. */
   groups: jsonb('groups').$type<string[]>().notNull().default([]),
   active: boolean('active').notNull().default(true),
+  /** Self-registered local account waiting for admin approval (active stays false until then). */
+  pendingApproval: boolean('pending_approval').notNull().default(false),
+  /** False for freshly provisioned LDAP/OIDC users until they confirmed name and email. */
+  profileCompleted: boolean('profile_completed').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
 }, (t) => [uniqueIndex('users_username_uq').on(t.username)]);
@@ -178,6 +182,10 @@ export const knowledgeDocuments = pgTable('knowledge_documents', {
   version: text('version'),
   sha256: text('sha256'),
   size: integer('size'),
+  /** Who wrote/last changed the document in the source (display name), where the source tells. */
+  author: text('author'),
+  /** Last modification in the source (not the time of indexing, see indexedAt). */
+  modifiedAt: timestamp('modified_at', { withTimezone: true }),
   /** Extracted plain text. Originals are never stored – the source is linked via url where one exists. */
   text: text('text'),
   status: text('status').$type<'indexed' | 'error' | 'skipped'>().notNull().default('indexed'),
@@ -202,6 +210,18 @@ export const knowledgeChunks = pgTable('knowledge_chunks', {
   index('kchunk_collection_idx').on(t.collectionId),
   index('kchunk_tsv_idx').using('gin', t.tsv),
 ]);
+
+export const knowledgeArticles = pgTable('knowledge_articles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  authorId: uuid('author_id').references(() => users.id, { onDelete: 'set null' }),
+  collectionId: uuid('collection_id').notNull().references(() => knowledgeCollections.id, { onDelete: 'cascade' }),
+  title: text('title').notNull(),
+  body: text('body').notNull(),
+  status: text('status').$type<'pending' | 'reviewing' | 'approved' | 'rejected'>().notNull().default('pending'),
+  documentId: uuid('document_id').references(() => knowledgeDocuments.id, { onDelete: 'set null' }),
+  submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+}, (t) => [index('karticle_author_idx').on(t.authorId, t.submittedAt), index('karticle_status_idx').on(t.status, t.submittedAt)]);
 
 /* ---------------- Personal access tokens (external MCP clients) ---------------- */
 

@@ -10,7 +10,7 @@ Die Oberfläche ist auf **Deutsch und Englisch** verfügbar (Umschalter DE | EN 
 
 > English documentation: [README.md](README.md) · [docs/](docs/)
 
-Interne Web-Anwendung für KI-Chat mit Benutzerverwaltung (lokal, LDAP/AD, OIDC/Azure AD), zentral verwalteten KI-Anbietern (Anthropic Claude, AWS Bedrock, GitHub Models/Enterprise, OpenAI-kompatibel), MCP-Servern pro Benutzer, Datei-Uploads und Audit-Log.
+Interne Web-Anwendung für KI-Chat mit Benutzerverwaltung (lokal, LDAP/AD, OIDC/Azure AD), zentral verwalteten KI-Anbietern (Anthropic Claude, AWS Bedrock, GitHub Models/Enterprise, OpenAI-kompatibel), MCP-Servern pro Benutzer, [codebasierten Plugins](docs/plugins.md) mit Admin-Schalter, Datei-Uploads, online verfassten Wissensartikeln mit Admin-Freigabe, optionaler Selbstregistrierung und Audit-Log.
 
 ```
 server/   Node.js 22 · Express 5 · Drizzle/PostgreSQL · Vercel AI SDK · MCP-SDK
@@ -162,7 +162,7 @@ Ausführlich mit Fehlerbildern: [docs/llm-providers.md](docs/llm-providers.md) (
 
 | Methode | Variablen | Hinweise |
 | --- | --- | --- |
-| Lokal | `AUTH_LOCAL_ENABLED`, `BOOTSTRAP_ADMIN_*` | Admin wird nur angelegt, wenn noch kein Benutzer existiert |
+| Lokal | `AUTH_LOCAL_ENABLED`, `REGISTRATION_ENABLED`, `BOOTSTRAP_ADMIN_*` | Admin wird nur angelegt, wenn noch kein Benutzer existiert. Selbstregistrierung (optional) legt inaktive Konten an, die ein Admin freigibt |
 | LDAP / AD | `LDAP_*` | Service-Bind → Suche → Bind als Benutzer. `LDAP_ADMIN_GROUP_DN` vergibt Admin-Rolle, `LDAP_USER_GROUP_DN` beschränkt Zugang. Für AD: `(sAMAccountName={{username}})` |
 | OIDC / Azure AD | `OIDC_*` | Authorization Code + PKCE. Redirect-URI: `<PUBLIC_URL>/api/auth/oidc/callback`. App-Rollen `AiPortal.User` / `AiPortal.Admin` im Claim `roles` |
 

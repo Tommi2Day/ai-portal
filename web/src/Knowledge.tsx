@@ -12,7 +12,7 @@ interface Collection {
   id: string; name: string; description: string | null; public: boolean; allowedGroups: string[];
   documents: number; chunks: number; sources: Source[];
 }
-interface Doc { id: string; title: string; url: string | null; status: string; error: string | null; chunkCount: number; indexedAt: string }
+interface Doc { id: string; title: string; url: string | null; status: string; error: string | null; chunkCount: number; indexedAt: string; author: string | null; modifiedAt: string | null }
 interface Provider { id: string; name: string; type: string }
 interface EmbCfg { settings: { providerId: string; modelId: string; dimensions?: number } | null; presets: Record<string, { modelId: string; label: string; dimensions?: number }[]> }
 
@@ -37,12 +37,51 @@ export function Knowledge() {
   return (
     <>
       <EmbeddingSettings onSaved={load} />
+      <ArticleReview onApproved={load} />
       <h3>{t('Sammlungen')}</h3>
       <p className="muted">{t('Übernommen wird nur der Text der Dokumente, keine Originaldateien; Treffer verlinken auf die Quelle (Confluence, SharePoint, Dateifreigabe). Eine Sammlung bündelt Quellen und bestimmt, wer die Inhalte im Chat finden kann. Gruppen kommen aus LDAP/AD, aus dem SSO-Token oder werden lokalen Benutzern zugewiesen.')}</p>
       {cols.map((c) => <CollectionCard key={c.id} c={c} reload={load} />)}
       <NewCollection onDone={load} onError={setError} />
       {error && <p className="error">{error}</p>}
     </>
+  );
+}
+
+interface ReviewArticle { id: string; title: string; body: string; author: string | null; collection: string; submittedAt: string }
+
+function ArticleReview({ onApproved }: { onApproved: () => void }) {
+  const [articles, setArticles] = useState<ReviewArticle[]>([]);
+  const [error, setError] = useState('');
+  const [working, setWorking] = useState<string | null>(null);
+  const load = () => api<ReviewArticle[]>('/admin/knowledge/articles').then(setArticles).catch((e: Error) => setError(e.message));
+  useEffect(() => { load(); }, []);
+
+  const review = async (id: string, decision: 'approve' | 'reject') => {
+    setError(''); setWorking(id);
+    try {
+      await api(`/admin/knowledge/articles/${id}/${decision}`, { method: 'POST' });
+      await load();
+      if (decision === 'approve') onApproved();
+    } catch (e) { setError((e as Error).message); }
+    finally { setWorking(null); }
+  };
+
+  return (
+    <div className="card-box">
+      <h4>{t('Artikel prüfen')} ({articles.length})</h4>
+      {articles.map((a) => (
+        <div key={a.id} className="review-article">
+          <strong>{a.title}</strong> <span className="muted small">· {a.collection} · {a.author ?? '–'} · {new Date(a.submittedAt).toLocaleString(locale())}</span>
+          <pre>{a.body}</pre>
+          <div className="row">
+            <button className="primary" disabled={working !== null} onClick={() => review(a.id, 'approve')}>{t('Freigeben')}</button>
+            <button disabled={working !== null} onClick={() => review(a.id, 'reject')}>{t('Ablehnen')}</button>
+          </div>
+        </div>
+      ))}
+      {articles.length === 0 && <p className="muted">{t('Keine Artikel zur Prüfung.')}</p>}
+      {error && <p className="error">{error}</p>}
+    </div>
   );
 }
 
@@ -203,7 +242,7 @@ function Documents({ sourceId, onChange }: { sourceId: string; onChange: () => v
   useEffect(() => { load(); }, [sourceId]);
   return (
     <table className="small">
-      <thead><tr><th>{t('Dokument')}</th><th>{t('Status')}</th><th>{t('Abschnitte')}</th><th>{t('Indiziert')}</th><th /></tr></thead>
+      <thead><tr><th>{t('Dokument')}</th><th>{t('Status')}</th><th>{t('Autor')}</th><th>{t('Zuletzt geändert')}</th><th>{t('Abschnitte')}</th><th>{t('Indiziert')}</th><th /></tr></thead>
       <tbody>
         {docs.map((d) => (
           <tr key={d.id} className={d.status === 'error' ? 'failed' : ''}>
@@ -212,6 +251,8 @@ function Documents({ sourceId, onChange }: { sourceId: string; onChange: () => v
               {!d.url && <span className="muted"> · {t('nur Textfassung')}</span>}
             </td>
             <td>{t(RESULT_LABEL[d.status] ?? d.status)}{d.error && <div className="muted">{t(d.error)}</div>}</td>
+            <td>{d.author ?? '–'}</td>
+            <td>{d.modifiedAt ? new Date(d.modifiedAt).toLocaleString(locale()) : '–'}</td>
             <td>{d.chunkCount}</td>
             <td>{new Date(d.indexedAt).toLocaleString(locale())}</td>
             <td className="actions"><button className="ghost" onClick={async () => { await api(`/admin/knowledge/documents/${d.id}`, { method: 'DELETE' }); load(); onChange(); }}>{t('Entfernen')}</button></td>

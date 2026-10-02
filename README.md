@@ -16,7 +16,10 @@ Self-hosted web application for internal use of generative AI: a chat interface 
 - **Sign-in** with local accounts, LDAP / Active Directory and OIDC (Azure AD / Entra ID, Keycloak, …) in parallel; roles *admin* and *user*; group sync
 - **AI providers** configured by admins: Anthropic Claude, AWS Bedrock, GitHub Models / GitHub Enterprise, any OpenAI-compatible endpoint; users choose from an approved model catalog
 - **Per-user MCP servers** (Streamable HTTP, SSE) with encrypted credentials
-- **Knowledge base (RAG)** from uploads, file shares, Confluence (Cloud and Server/DC) and SharePoint / OneDrive — text only, every hit links to its source; hybrid search (pgvector + full text); access per collection and group
+- **Code-deployed plugins** for chat tools, authenticated API endpoints and UI pages; admins can disable them ([plugin guide](docs/plugins.md))
+- **Knowledge base (RAG)** from uploads, file shares, Confluence (Cloud and Server/DC) and SharePoint / OneDrive — text only, every hit links to its source, with author and last-change time on request; hybrid search (pgvector + full text); access per collection and group
+- **Sign-up and profile:** optional self-registration with admin approval; LDAP/Entra users confirm name and email (prefilled from the directory) at first sign-in
+- **Contributed articles** written in the browser by signed-in users and reviewed by admins before they enter the knowledge base
 - **Knowledge base as an MCP server** at `/mcp` for LibreChat, Claude Desktop, IDEs — with personal access tokens
 - **Audit log** in PostgreSQL (UI with filters and CSV export) and as JSON on stdout
 - **Branding:** own name, logo and colors via environment variables, no rebuild ([configuration](docs/configuration.md#branding))
@@ -85,6 +88,7 @@ Users add their own MCP servers under **MCP-Server**.
 | [Administration guide](docs/administration.md) | Users and groups, sign-in methods, providers and models, knowledge base, audit log |
 | [User guide](docs/user-guide.md) | Chat, attachments, knowledge base, MCP servers, access tokens |
 | [API & MCP reference](docs/api.md) | REST endpoints, streaming format, MCP endpoint and tools |
+| [Plugins](docs/plugins.md) | Writing and registering trusted server/UI plugins, admin toggles, sample plugin |
 | [Security & audit](docs/security.md) | Security model, hardening, audit events, data handling |
 
 The architecture concept (options, decision log, design) is maintained as a separate document.

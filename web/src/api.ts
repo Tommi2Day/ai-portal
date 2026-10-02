@@ -21,7 +21,7 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   return data as T;
 }
 
-export interface Me { id: string; username: string; displayName: string | null; role: 'admin' | 'user'; authSource: string }
+export interface Me { id: string; username: string; displayName: string | null; email?: string | null; role: 'admin' | 'user'; authSource: string; profileCompleted?: boolean }
 export interface ModelOpt { id: string; displayName: string; description: string | null; provider: string; supportsImages: boolean; isDefault: boolean }
 export interface ChatSummary { id: string; title: string; updatedAt: string }
 export interface Attachment { id: string; filename: string; mimeType: string; size: number; warning?: string }

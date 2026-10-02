@@ -1,15 +1,15 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { config } from '../config.js';
-import { db } from '../db/index.js';
-import { knowledgeCollections, knowledgeDocuments, knowledgeSources, providers } from '../db/schema.js';
+import { db, pool } from '../db/index.js';
+import { knowledgeArticles, knowledgeCollections, knowledgeDocuments, knowledgeSources, providers, users } from '../db/schema.js';
 import { audit } from '../audit.js';
 import { encryptJson } from '../crypto.js';
 import { EMBEDDING_PRESETS, getEmbedder, getEmbeddingSettings, setEmbeddingSettings } from '../knowledge/embeddings.js';
 import { collectionStats, indexDocument } from '../knowledge/store.js';
-import { accessibleCollections, hybridSearch } from '../knowledge/search.js';
+import { accessibleCollections, documentMeta, hybridSearch, publishedArticleDocument } from '../knowledge/search.js';
 import { syncSource } from '../knowledge/sync.js';
 import { resolveFsPath } from '../knowledge/connectors/filesystem.js';
 
@@ -169,6 +169,7 @@ knowledgeAdminRouter.get('/sources/:id/documents', async (req, res) => {
   res.json(await db.select({
     id: knowledgeDocuments.id, title: knowledgeDocuments.title, url: knowledgeDocuments.url, status: knowledgeDocuments.status,
     error: knowledgeDocuments.error, chunkCount: knowledgeDocuments.chunkCount, size: knowledgeDocuments.size, indexedAt: knowledgeDocuments.indexedAt,
+    author: knowledgeDocuments.author, modifiedAt: knowledgeDocuments.modifiedAt,
   }).from(knowledgeDocuments).where(eq(knowledgeDocuments.sourceId, req.params.id)).orderBy(desc(knowledgeDocuments.indexedAt)).limit(1000));
 });
 
@@ -180,6 +181,113 @@ knowledgeAdminRouter.delete('/documents/:id', async (req, res) => {
 });
 
 /* ---------------- Upload into a collection ---------------- */
+
+const MAX_PENDING_ARTICLES = 10;
+
+const articleBody = z.object({
+  collectionId: z.string().uuid(),
+  title: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(100_000),
+});
+
+knowledgeUserRouter.get('/articles', async (req, res) => {
+  res.json(await db.select({
+    id: knowledgeArticles.id, title: knowledgeArticles.title, status: knowledgeArticles.status,
+    submittedAt: knowledgeArticles.submittedAt, reviewedAt: knowledgeArticles.reviewedAt,
+    collection: knowledgeCollections.name, documentId: knowledgeArticles.documentId,
+  }).from(knowledgeArticles).innerJoin(knowledgeCollections, eq(knowledgeArticles.collectionId, knowledgeCollections.id))
+    .where(eq(knowledgeArticles.authorId, req.user!.id)).orderBy(desc(knowledgeArticles.submittedAt)).limit(100));
+});
+
+knowledgeUserRouter.post('/articles', async (req, res) => {
+  const p = articleBody.safeParse(req.body);
+  if (!p.success) return bad(res, p.error);
+  if (!(await accessibleCollections(req.user!)).some((c) => c.id === p.data.collectionId)) return res.status(404).end();
+  if (!await getEmbeddingSettings()) return res.status(400).json({ error: 'Zuerst ein Embedding-Modell konfigurieren' });
+  const [{ open }] = await db.select({ open: sql<number>`count(*)::int` }).from(knowledgeArticles)
+    .where(and(eq(knowledgeArticles.authorId, req.user!.id), inArray(knowledgeArticles.status, ['pending', 'reviewing'])));
+  if (open >= MAX_PENDING_ARTICLES) return res.status(429).json({ error: 'Zu viele Artikel in Prüfung – bitte die Freigabe abwarten' });
+  const [article] = await db.insert(knowledgeArticles).values({ ...p.data, authorId: req.user!.id }).returning();
+  await audit(req, { action: 'knowledge.article.submit', targetType: 'knowledge_article', targetId: article.id, details: { title: article.title, collectionId: article.collectionId } });
+  res.status(201).json({ id: article.id, status: article.status });
+});
+
+knowledgeAdminRouter.get('/articles', async (_req, res) => {
+  res.json(await db.select({
+    id: knowledgeArticles.id, title: knowledgeArticles.title, body: knowledgeArticles.body,
+    submittedAt: knowledgeArticles.submittedAt, collection: knowledgeCollections.name,
+    author: users.username,
+  }).from(knowledgeArticles).innerJoin(knowledgeCollections, eq(knowledgeArticles.collectionId, knowledgeCollections.id))
+    .leftJoin(users, eq(knowledgeArticles.authorId, users.id))
+    .where(or(eq(knowledgeArticles.status, 'pending'), and(
+      eq(knowledgeArticles.status, 'reviewing'), lt(knowledgeArticles.reviewedAt, new Date(Date.now() - 10 * 60_000)),
+    ))).orderBy(asc(knowledgeArticles.submittedAt)).limit(100));
+});
+
+knowledgeAdminRouter.post('/articles/:id/reject', async (req, res) => {
+  const parsedId = z.string().uuid().safeParse(req.params.id);
+  if (!parsedId.success) return bad(res, parsedId.error);
+  const [article] = await db.update(knowledgeArticles).set({ status: 'rejected', reviewedAt: new Date() })
+    .where(and(eq(knowledgeArticles.id, parsedId.data), or(eq(knowledgeArticles.status, 'pending'), and(
+      eq(knowledgeArticles.status, 'reviewing'), lt(knowledgeArticles.reviewedAt, new Date(Date.now() - 10 * 60_000)),
+    )))).returning();
+  if (!article) return res.status(409).json({ error: 'Artikel nicht mehr zur Prüfung verfügbar' });
+  await audit(req, { action: 'knowledge.article.reject', targetType: 'knowledge_article', targetId: article.id, details: { title: article.title } });
+  res.json({ status: article.status });
+});
+
+knowledgeAdminRouter.post('/articles/:id/approve', async (req, res) => {
+  const parsedId = z.string().uuid().safeParse(req.params.id);
+  if (!parsedId.success) return bad(res, parsedId.error);
+  const lockKey = BigInt.asIntN(64, BigInt('0x' + parsedId.data.replaceAll('-', '').slice(0, 16))).toString();
+  const lock = await pool.connect();
+  try {
+    const { rows } = await lock.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1::bigint) AS ok', [lockKey]);
+    if (!rows[0].ok) return res.status(409).json({ error: 'Artikel wird bereits geprüft' });
+    const [article] = await db.update(knowledgeArticles).set({ status: 'reviewing', reviewedAt: new Date() })
+      .where(and(eq(knowledgeArticles.id, parsedId.data), or(eq(knowledgeArticles.status, 'pending'), and(
+        eq(knowledgeArticles.status, 'reviewing'), lt(knowledgeArticles.reviewedAt, new Date(Date.now() - 10 * 60_000)),
+      )))).returning();
+    if (!article) return res.status(409).json({ error: 'Artikel nicht mehr zur Prüfung verfügbar' });
+    let source: typeof knowledgeSources.$inferSelect | undefined;
+    let indexed = false;
+    try {
+      const embedder = await getEmbedder();
+      if (!embedder) return res.status(400).json({ error: 'Zuerst ein Embedding-Modell konfigurieren' });
+      [source] = await db.select().from(knowledgeSources)
+        .where(and(eq(knowledgeSources.collectionId, article.collectionId), eq(knowledgeSources.type, 'upload')));
+      source ??= (await db.insert(knowledgeSources).values({
+        collectionId: article.collectionId, type: 'upload', name: 'Artikel', syncIntervalMinutes: 0,
+      }).returning())[0];
+      const [writer] = article.authorId ? await db.select({ name: users.displayName, username: users.username }).from(users).where(eq(users.id, article.authorId)) : [];
+      const result = await indexDocument(source, {
+        externalId: `article:${article.id}`, title: article.title, filename: `${article.title}.md`,
+        mimeType: 'text/markdown', text: article.body, version: null,
+        author: writer ? writer.name ?? writer.username : null, modifiedAt: article.submittedAt,
+      }, embedder);
+      if (result === 'error' || result === 'skipped') {
+        await db.delete(knowledgeDocuments).where(and(eq(knowledgeDocuments.sourceId, source.id), eq(knowledgeDocuments.externalId, `article:${article.id}`)));
+        return res.status(502).json({ error: 'Artikel konnte nicht indiziert werden' });
+      }
+      indexed = true;
+      const [document] = await db.select({ id: knowledgeDocuments.id }).from(knowledgeDocuments)
+        .where(and(eq(knowledgeDocuments.sourceId, source.id), eq(knowledgeDocuments.externalId, `article:${article.id}`)));
+      await db.update(knowledgeArticles).set({ status: 'approved', documentId: document.id, reviewedAt: new Date() })
+        .where(eq(knowledgeArticles.id, article.id));
+      await audit(req, { action: 'knowledge.article.approve', targetType: 'knowledge_article', targetId: article.id, details: { title: article.title, documentId: document.id } });
+      res.json({ status: 'approved', documentId: document.id });
+    } catch (error) {
+      if (indexed && source) await db.delete(knowledgeDocuments).where(and(eq(knowledgeDocuments.sourceId, source.id), eq(knowledgeDocuments.externalId, `article:${article.id}`)));
+      throw error;
+    } finally {
+      await db.update(knowledgeArticles).set({ status: 'pending' })
+        .where(and(eq(knowledgeArticles.id, article.id), eq(knowledgeArticles.status, 'reviewing')));
+    }
+  } finally {
+    try { await lock.query('SELECT pg_advisory_unlock($1::bigint)', [lockKey]); }
+    finally { lock.release(); }
+  }
+});
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: config.KNOWLEDGE_MAX_FILE_MB * 1024 * 1024, files: 50 } });
 
@@ -195,7 +303,8 @@ knowledgeAdminRouter.post('/collections/:id/upload', upload.array('files', 50), 
   const results = [];
   for (const f of (req.files as Express.Multer.File[]) ?? []) {
     const filename = Buffer.from(f.originalname, 'latin1').toString('utf8');
-    const result = await indexDocument(src, { externalId: filename, title: filename, filename, mimeType: f.mimetype, version: null, data: f.buffer }, embedder);
+    const result = await indexDocument(src, { externalId: filename, title: filename, filename, mimeType: f.mimetype, version: null, data: f.buffer,
+      author: req.user!.displayName ?? req.user!.username, modifiedAt: new Date() }, embedder);
     await audit(req, { action: 'knowledge.upload', targetType: 'knowledge_collection', targetId: c.id, success: result !== 'error', details: { filename, size: f.size, result } });
     results.push({ filename, result });
   }
@@ -214,9 +323,20 @@ knowledgeUserRouter.get('/collections', async (req, res) => {
 knowledgeUserRouter.get('/search', async (req, res) => {
   const q = z.string().min(1).max(1000).parse(req.query.q);
   const cols = await accessibleCollections(req.user!);
+  const withMeta = req.query.meta === '1' || req.query.meta === 'true';
   const hits = await hybridSearch(q, cols.map((c) => c.id), 10);
   await audit(req, { action: 'knowledge.search', details: { via: 'api', chars: q.length, hits: hits.length, ...(config.AUDIT_LOG_PROMPTS ? { query: q } : {}) } });
-  res.json(hits);
+  // author, source and last-change time only on request (?meta=1)
+  res.json(withMeta ? hits : hits.map(({ meta: _meta, ...hit }) => hit));
+});
+
+/** Provenance of one document (author, source, last change) – only for documents the user may see. */
+knowledgeUserRouter.get('/documents/:id/meta', async (req, res) => {
+  const parsedId = z.string().uuid().safeParse(req.params.id);
+  if (!parsedId.success) return res.status(404).end();
+  const [d] = await db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.id, parsedId.data));
+  if (!d || !(await accessibleCollections(req.user!)).some((c) => c.id === d.collectionId) || !await publishedArticleDocument(d)) return res.status(404).end();
+  res.json({ id: d.id, title: d.title, url: d.url, mimeType: d.mimeType, size: d.size, ...await documentMeta(d.id) });
 });
 
 /**
@@ -227,7 +347,7 @@ knowledgeUserRouter.get('/documents/:id/open', async (req, res) => {
   const [d] = await db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.id, req.params.id));
   if (!d) return res.status(404).end();
   const allowed = (await accessibleCollections(req.user!)).some((c) => c.id === d.collectionId);
-  if (!allowed) return res.status(404).end();
+  if (!allowed || !await publishedArticleDocument(d)) return res.status(404).end();
   await audit(req, { action: 'knowledge.document.open', targetType: 'knowledge_document', targetId: d.id, details: { title: d.title, redirect: !!d.url } });
   if (d.url) return res.redirect(d.url);
   if (!d.text) return res.status(404).end();

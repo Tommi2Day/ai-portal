@@ -16,6 +16,7 @@ export function langOf(req: Request): Lang {
 const EXACT: Record<string, string> = {
   'Anmeldevorgang abgelaufen': 'Sign-in expired, please try again',
   'Benutzer ist deaktiviert': 'User is deactivated',
+  'Registrierung wartet auf Freigabe durch einen Admin': 'Registration is awaiting approval by an admin',
   'Benutzername oder Passwort falsch': 'Wrong username or password',
   'Keine Berechtigung für das AI Portal': 'You are not authorized to use the AI Portal',
   'LDAP-Anmeldung deaktiviert': 'LDAP sign-in is disabled',

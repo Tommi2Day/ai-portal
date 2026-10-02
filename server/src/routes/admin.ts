@@ -17,7 +17,7 @@ const bad = (res: import('express').Response, e: z.ZodError) => res.status(400).
 
 const publicUser = {
   id: users.id, username: users.username, displayName: users.displayName, email: users.email,
-  authSource: users.authSource, role: users.role, groups: users.groups, active: users.active, createdAt: users.createdAt, lastLoginAt: users.lastLoginAt,
+  authSource: users.authSource, role: users.role, groups: users.groups, active: users.active, pendingApproval: users.pendingApproval, createdAt: users.createdAt, lastLoginAt: users.lastLoginAt,
 };
 
 adminRouter.get('/users', async (_req, res) => {
@@ -65,7 +65,7 @@ adminRouter.patch('/users/:id', async (req, res) => {
   if (p.data.password && target.authSource !== 'local') return res.status(400).json({ error: 'Passwort nur für lokale Benutzer' });
   const { password, ...rest } = p.data;
   const [u] = await db.update(users)
-    .set({ ...rest, ...(password ? { passwordHash: await hashPassword(password) } : {}) })
+    .set({ ...rest, ...(rest.active ? { pendingApproval: false } : {}), ...(password ? { passwordHash: await hashPassword(password) } : {}) })
     .where(eq(users.id, target.id)).returning(publicUser);
   await audit(req, { action: 'user.update', targetType: 'user', targetId: u.id, details: { ...rest, passwordChanged: !!password } });
   res.json(u);

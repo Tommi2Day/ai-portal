@@ -25,8 +25,8 @@ export async function upsertExternalUser(p: {
     throw new LoginError(`Benutzername ${username} ist bereits einer anderen Anmeldequelle zugeordnet`);
   }
   const values = {
-    displayName: p.displayName ?? null,
-    email: p.email ?? null,
+    ...(p.displayName ? { displayName: p.displayName } : {}),
+    ...(p.email ? { email: p.email } : {}),
     externalId: p.externalId,
     lastLoginAt: new Date(),
     ...(p.groups ? { groups: [...new Set(p.groups)].sort((a, b) => a.localeCompare(b)) } : {}),
@@ -37,6 +37,6 @@ export async function upsertExternalUser(p: {
     const [u] = await db.update(users).set(values).where(eq(users.id, byName.id)).returning();
     return u;
   }
-  const [u] = await db.insert(users).values({ username, authSource: p.source, role: p.roleFromIdp ?? 'user', ...values }).returning();
+  const [u] = await db.insert(users).values({ username, authSource: p.source, role: p.roleFromIdp ?? 'user', profileCompleted: false, ...values }).returning();
   return u;
 }

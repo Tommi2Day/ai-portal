@@ -108,6 +108,12 @@ a.button { color: inherit; }
 .md a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .card-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin: 12px 0 20px; }
 .card-box h4 { margin: 0 0 4px; font-size: 16px; }
+.article-form { max-width: 780px; display: grid; gap: 14px; }
+.article-form label { display: grid; gap: 4px; }
+.article-form textarea { resize: vertical; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; }
+.article-form button { justify-self: start; }
+.review-article { border-top: 1px solid var(--line); padding: 14px 0; }
+.review-article pre { max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: inherit; background: var(--bg-soft); padding: 12px; border-radius: 8px; }
 .status-ok { color: #1f7a3f; } .status-running { color: #9a6700; }
 @media (prefers-color-scheme: dark) { .status-ok { color: #5fd08a; } .status-running { color: #e3b341; } }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

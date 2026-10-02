@@ -19,6 +19,7 @@ import { chatsRouter, modelsRouter } from './routes/chats.js';
 import { knowledgeAdminRouter, knowledgeUserRouter } from './routes/knowledge.js';
 import { mcpAuth, mcpHandler } from './knowledge/mcpServer.js';
 import { tokensRouter } from './routes/tokens.js';
+import { pluginsAdminRouter, pluginsRouter } from './routes/plugins.js';
 import rateLimit from 'express-rate-limit';
 import { logoOrigin, renderIndexHtml, type Branding } from './branding.js';
 
@@ -65,6 +66,8 @@ export function createApp(branding: Branding) {
   app.use('/api/models', requireAuth, modelsRouter);
   app.use('/api/chats', requireAuth, chatsRouter);
   app.use('/api/tokens', requireAuth, tokensRouter);
+  app.use('/api/admin/plugins', requireAdmin, pluginsAdminRouter);
+  app.use('/api/plugins', requireAuth, pluginsRouter);
   if (config.KNOWLEDGE_ENABLED) {
     app.use('/api/admin/knowledge', requireAdmin, knowledgeAdminRouter);
     app.use('/api/knowledge', requireAuth, knowledgeUserRouter);

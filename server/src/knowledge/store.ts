@@ -32,6 +32,8 @@ export interface IncomingDoc {
   url?: string | null;
   mimeType?: string | null;
   version?: string | null;
+  author?: string | null;
+  modifiedAt?: Date | null;
   /** Filename used to pick the text extractor. */
   filename: string;
   /** Either raw bytes (extracted here, then discarded) or already extracted text. */
@@ -48,11 +50,12 @@ export type IndexResult = 'added' | 'updated' | 'unchanged' | 'error' | 'skipped
  *  - 'fetch':     new or changed -> download and extract
  */
 export async function planDocument(sourceId: string, externalId: string, version: string | null | undefined, embedderKey: string) {
-  const [d] = await db.select({ version: knowledgeDocuments.version, model: knowledgeDocuments.embeddingModel, status: knowledgeDocuments.status, text: knowledgeDocuments.text, title: knowledgeDocuments.title })
+  const [d] = await db.select({ version: knowledgeDocuments.version, model: knowledgeDocuments.embeddingModel, status: knowledgeDocuments.status, text: knowledgeDocuments.text, title: knowledgeDocuments.title,
+    author: knowledgeDocuments.author, modifiedAt: knowledgeDocuments.modifiedAt })
     .from(knowledgeDocuments).where(and(eq(knowledgeDocuments.sourceId, sourceId), eq(knowledgeDocuments.externalId, externalId)));
   const sameVersion = !!d && !!version && d.version === version && d.status !== 'error';
   // documents indexed before the text column existed are fetched once more to backfill their text
-  if (sameVersion && d.model === embedderKey && d.text) return { action: 'unchanged' as const };
+  if (sameVersion && d.model === embedderKey && d.text) return { action: 'unchanged' as const, author: d.author, modifiedAt: d.modifiedAt };
   if (sameVersion && d.text) return { action: 'reembed' as const, text: d.text };
   return { action: 'fetch' as const };
 }
@@ -66,6 +69,7 @@ export async function indexDocument(source: KnowledgeSource, doc: IncomingDoc, e
     url: doc.url ?? null, mimeType: doc.mimeType ?? null, version: doc.version ?? null,
     sha256: doc.data ? crypto.createHash('sha256').update(doc.data).digest('hex') : null,
     size: doc.data?.length ?? doc.text?.length ?? null,
+    author: doc.author?.slice(0, 200) ?? null, modifiedAt: doc.modifiedAt ?? null,
     embeddingModel: embedder.key, indexedAt: new Date(),
   };
 

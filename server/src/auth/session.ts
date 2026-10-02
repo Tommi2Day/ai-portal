@@ -15,10 +15,12 @@ export interface SessionUser {
   role: 'admin' | 'user';
   authSource: 'local' | 'ldap' | 'oidc';
   groups: string[];
+  profileCompleted: boolean;
 }
 
 export const toSessionUser = (u: User): SessionUser => ({
   id: u.id, username: u.username, displayName: u.displayName, email: u.email, role: u.role, authSource: u.authSource, groups: u.groups,
+  profileCompleted: u.profileCompleted,
 });
 
 const cookieOpts = () => ({

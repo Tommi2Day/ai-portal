@@ -42,6 +42,7 @@ export function filesystemConnector(cfg: FilesystemConfig): Connector {
         title: rel,
         filename: e.name,
         size: st.size,
+        modifiedAt: st.mtime,
         version: `${Math.floor(st.mtimeMs)}-${st.size}`,
         url: cfg.urlPrefix ? cfg.urlPrefix.replace(/\/?$/, '/') + relUrl : null,
         load: async () => ({ data: await fs.readFile(abs) }),

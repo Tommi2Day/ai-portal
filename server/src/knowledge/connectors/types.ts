@@ -7,7 +7,11 @@ export interface DocRef {
   version?: string | null;
   filename: string;
   size?: number;
-  load(): Promise<{ data?: Buffer; text?: string }>;
+  /** Last editor (display name) and modification time in the source, if known from the listing. */
+  author?: string | null;
+  modifiedAt?: Date | null;
+  /** May add the author when the listing does not carry it. */
+  load(): Promise<{ data?: Buffer; text?: string; author?: string | null }>;
 }
 
 export interface Connector {

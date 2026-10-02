@@ -18,8 +18,9 @@ export function mount() {
 }
 
 /** Sets an input/select value through the native setter so React's onChange fires. */
-export async function type(input: HTMLInputElement | HTMLSelectElement, value: string) {
-  const proto = input instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+export async function type(input: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, value: string) {
+  const proto = input instanceof HTMLSelectElement ? HTMLSelectElement.prototype
+    : input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(input, value);
   await act(async () => { input.dispatchEvent(new Event(input instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); });
 }

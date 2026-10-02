@@ -13,6 +13,7 @@ import { logger } from '../logger.js';
 import { langOf, tr } from '../i18n.js';
 import { accessibleCollections, knowledgeTool } from '../knowledge/search.js';
 import { getEmbeddingSettings } from '../knowledge/embeddings.js';
+import { pluginTools } from '../plugins/index.js';
 
 export const chatsRouter = Router();
 export const modelsRouter = Router();
@@ -166,11 +167,15 @@ chatsRouter.post('/:id/messages', async (req, res) => {
   const mcp = await mcpTools(req, body.useMcp);
   if (mcp.status.length) send({ t: 'mcp', status: mcp.status.map((s) => ({ ...s, error: s.error && tr(s.error, lang) })) });
   const kb = await knowledgeTools(req, chat.id, body.useKnowledge);
-  const tools = { ...mcp.tools, ...kb };
 
   const started = Date.now();
   const rec = new AnswerRecorder();
   try {
+    const plugin = await pluginTools(user);
+    for (const name of Object.keys(plugin)) {
+      if (name in mcp.tools || name in kb) throw new Error(`Plugin tool name collision: ${name}`);
+    }
+    const tools = { ...mcp.tools, ...kb, ...plugin };
     await streamAnswer(rec, {
       model: languageModel(provider, model),
       system: systemPrompt(Object.keys(kb).length > 0, lang),

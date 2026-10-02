@@ -22,6 +22,7 @@ export interface SharePointSecret { clientSecret: string }
 type Item = {
   id: string; name: string; webUrl: string; eTag?: string; cTag?: string; size?: number;
   file?: { mimeType?: string }; folder?: { childCount: number };
+  lastModifiedDateTime?: string; lastModifiedBy?: { user?: { displayName?: string } };
 };
 
 /**
@@ -69,6 +70,8 @@ export function sharepointConnector(cfg: SharePointConfig, sec: SharePointSecret
         yield {
           externalId: it.id, title: rel, filename: it.name, url: it.webUrl, mimeType: it.file.mimeType ?? null,
           version: it.cTag ?? it.eTag ?? null, size: it.size,
+          author: it.lastModifiedBy?.user?.displayName ?? null,
+          modifiedAt: it.lastModifiedDateTime ? new Date(it.lastModifiedDateTime) : null,
           load: async () => {
             const res = await httpFetch(`${graph}/drives/${drive}/items/${it.id}/content`, { headers: { authorization: `Bearer ${await auth()}` } });
             return { data: Buffer.from(await res.arrayBuffer()) };

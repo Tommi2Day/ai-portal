@@ -10,7 +10,7 @@ import { audit } from '../audit.js';
 import { toSessionUser } from '../auth/session.js';
 import { hashToken } from '../routes/tokens.js';
 import { collectionStats } from './store.js';
-import { accessibleCollections, hybridSearch } from './search.js';
+import { accessibleCollections, documentMeta, hybridSearch, metaForTool, publishedArticleDocument } from './search.js';
 
 /** Bearer personal access token -> req.user. Session cookies are deliberately NOT accepted on /mcp. */
 export async function mcpAuth(req: Request, res: Response, next: NextFunction) {
@@ -53,8 +53,9 @@ function buildServer(req: Request) {
       query: z.string().min(1).max(1000).describe('Suchanfrage in natürlicher Sprache oder Stichworten'),
       sammlung: z.string().optional().describe('Optional: nur in dieser Sammlung suchen (siehe sammlungen_auflisten)'),
       anzahl: z.number().int().min(1).max(20).optional().describe('Anzahl Treffer, Standard 8'),
+      metadaten: z.boolean().optional().describe('Autor, Datenquelle und Zeitpunkt der letzten Änderung je Treffer mitliefern'),
     },
-  }, async ({ query, sammlung, anzahl }) => {
+  }, async ({ query, sammlung, anzahl, metadaten }) => {
     const cols = (await accessibleCollections(user)).filter((c) => !sammlung || c.name.toLowerCase() === sammlung.toLowerCase());
     if (sammlung && !cols.length) return { isError: true, content: [{ type: 'text', text: `Sammlung „${sammlung}“ nicht gefunden oder kein Zugriff` }] };
     const hits = await hybridSearch(query, cols.map((c) => c.id), anzahl ?? 8);
@@ -64,10 +65,10 @@ function buildServer(req: Request) {
     });
     const treffer = hits.map((h, i) => ({
       nr: i + 1, titel: h.title, url: abs(h.url ?? `/api/knowledge/documents/${h.documentId}/open`), quelle: h.url ? 'Original' : 'Textfassung',
-      sammlung: h.collection, dokument_id: h.documentId, auszug: h.content,
+      sammlung: h.collection, dokument_id: h.documentId, auszug: h.content, ...(metadaten ? { metadaten: metaForTool(h.meta) } : {}),
     }));
     const text = treffer.length
-      ? treffer.map((t) => `[${t.nr}] ${t.titel} (${t.sammlung})\n${t.url}\ndokument_id: ${t.dokument_id}\n${t.auszug}`).join('\n\n---\n\n')
+      ? treffer.map((t) => `[${t.nr}] ${t.titel} (${t.sammlung})\n${t.url}\ndokument_id: ${t.dokument_id}\n${t.metadaten ? `Autor: ${t.metadaten.autor ?? 'unbekannt'} · Quelle: ${t.metadaten.datenquelle} · Zuletzt geändert: ${t.metadaten.zuletzt_geaendert}\n` : ''}${t.auszug}`).join('\n\n---\n\n')
       : 'Keine Treffer.';
     return { content: [{ type: 'text', text }], structuredContent: { treffer } };
   });
@@ -77,16 +78,20 @@ function buildServer(req: Request) {
     inputSchema: {
       dokument_id: z.string().uuid(),
       max_zeichen: z.number().int().min(1000).max(200_000).optional().describe('Standard 50.000'),
+      metadaten: z.boolean().optional().describe('Autor, Datenquelle und Zeitpunkt der letzten Änderung mitliefern'),
     },
-  }, async ({ dokument_id, max_zeichen }) => {
+  }, async ({ dokument_id, max_zeichen, metadaten }) => {
     const [d] = await db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.id, dokument_id));
-    const allowed = d && (await accessibleCollections(user)).some((c) => c.id === d.collectionId);
+    const allowed = d && (await accessibleCollections(user)).some((c) => c.id === d.collectionId)
+      && await publishedArticleDocument(d);
     if (!allowed) return { isError: true, content: [{ type: 'text', text: 'Dokument nicht gefunden oder kein Zugriff' }] };
     let text = d.text ?? '';
     const max = max_zeichen ?? 50_000;
     if (text.length > max) text = text.slice(0, max) + `\n\n[… gekürzt, insgesamt ${text.length} Zeichen]`;
     await audit(req, { action: 'knowledge.document.read', targetType: 'knowledge_document', targetId: d.id, details: { via: 'mcp', title: d.title } });
-    return { content: [{ type: 'text', text: `# ${d.title}\nQuelle: ${d.url ?? 'keine (hochgeladen) – Textfassung: ' + abs(`/api/knowledge/documents/${d.id}/open`)}\n\n${text}` }] };
+    const meta = metadaten ? await documentMeta(d.id) : null;
+    const metaLine = meta ? (({ datenquelle, autor, zuletzt_geaendert }) => `Autor: ${autor ?? 'unbekannt'} · Datenquelle: ${datenquelle} · Zuletzt geändert: ${zuletzt_geaendert}\n`)(metaForTool(meta)) : '';
+    return { content: [{ type: 'text', text: `# ${d.title}\nQuelle: ${d.url ?? 'keine (hochgeladen) – Textfassung: ' + abs(`/api/knowledge/documents/${d.id}/open`)}\n${metaLine}\n${text}` }] };
   });
 
   return server;

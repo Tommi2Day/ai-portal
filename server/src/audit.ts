@@ -15,6 +15,7 @@ export function englishDetails(d?: Record<string, unknown> | null) {
 
 export type AuditAction =
   | 'auth.login' | 'auth.logout' | 'auth.login_failed'
+  | 'auth.register' | 'auth.profile'
   | 'user.create' | 'user.update' | 'user.delete'
   | 'provider.create' | 'provider.update' | 'provider.delete'
   | 'model.create' | 'model.update' | 'model.delete'
@@ -25,7 +26,9 @@ export type AuditAction =
   | 'knowledge.settings' | 'knowledge.collection.create' | 'knowledge.collection.update' | 'knowledge.collection.delete'
   | 'knowledge.source.create' | 'knowledge.source.update' | 'knowledge.source.delete'
   | 'knowledge.sync' | 'knowledge.upload' | 'knowledge.document.delete' | 'knowledge.document.open' | 'knowledge.search' | 'knowledge.document.read'
-  | 'token.create' | 'token.delete' | 'token.auth_failed';
+  | 'knowledge.article.submit' | 'knowledge.article.approve' | 'knowledge.article.reject'
+  | 'token.create' | 'token.delete' | 'token.auth_failed'
+  | 'plugin.update' | 'plugin.tool_call';
 
 export interface AuditEntry {
   action: AuditAction;

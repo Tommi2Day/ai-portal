@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db, pool } from '../db/index.js';
 import { knowledgeDocuments, knowledgeSources, type KnowledgeSource } from '../db/schema.js';
 import { decryptJson } from '../crypto.js';
@@ -26,7 +26,7 @@ async function reindexUploads(s: KnowledgeSource, embedder: Embedder, stats: Rec
   for (const d of docs) {
     if (d.embeddingModel === embedder.key && d.status === 'indexed') { stats.unchanged++; continue; }
     if (!d.text) { stats.errors++; continue; }
-    const r = await indexDocument(s, { externalId: d.externalId, title: d.title, url: d.url, filename: d.title, mimeType: d.mimeType, version: d.version, text: d.text }, embedder);
+    const r = await indexDocument(s, { externalId: d.externalId, title: d.title, url: d.url, filename: d.title, mimeType: d.mimeType, version: d.version, text: d.text, author: d.author, modifiedAt: d.modifiedAt }, embedder);
     stats[r === 'added' || r === 'updated' ? 'updated' : r === 'error' ? 'errors' : r]++;
   }
 }
@@ -36,7 +36,15 @@ type Stats = Record<string, number>;
 /** One document of a connector: skip if unchanged, re-embed stored text if only the model changed, else load and index. */
 async function syncDocument(s: KnowledgeSource, ref: DocRef, embedder: Embedder, stats: Stats) {
   const plan = await planDocument(s.id, ref.externalId, ref.version, embedder.key);
-  if (plan.action === 'unchanged') { stats.unchanged++; return; }
+  if (plan.action === 'unchanged') {
+    // cheap backfill: documents indexed before author/modification time were recorded get them without re-embedding
+    const stale = (ref.author && ref.author !== plan.author) || (ref.modifiedAt && ref.modifiedAt.getTime() !== plan.modifiedAt?.getTime());
+    if (stale) {
+      await db.update(knowledgeDocuments).set({ author: ref.author ?? plan.author, modifiedAt: ref.modifiedAt ?? plan.modifiedAt })
+        .where(and(eq(knowledgeDocuments.sourceId, s.id), eq(knowledgeDocuments.externalId, ref.externalId)));
+    }
+    stats.unchanged++; return;
+  }
   // only the embedding model changed: re-embed the stored text, no download from the source
   const content = plan.action === 'reembed' ? { text: plan.text } : await ref.load();
   const r = await indexDocument(s, { ...ref, ...content }, embedder);

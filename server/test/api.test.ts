@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Client, statusOf, startApp } from './support/app.js';
 import { MockLlm, lastUser, toolResults, type ChatRequest } from './integration/mockLlm.js';
@@ -18,7 +19,9 @@ const { config } = await import('../src/config.js');
 const { bootstrapAdmin } = await import('../src/app.js');
 const { convertLegacyAuditToEnglish } = await import('../src/audit.js');
 const { db } = await import('../src/db/index.js');
-const { users } = await import('../src/db/schema.js');
+const { knowledgeArticles, knowledgeDocuments, knowledgeSources, users } = await import('../src/db/schema.js');
+const { getEmbedder } = await import('../src/knowledge/embeddings.js');
+const { indexDocument } = await import('../src/knowledge/store.js');
 
 const ADMIN_PW = 'admin-pass-123456';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-portal-api-'));
@@ -81,7 +84,7 @@ describe('startup', () => {
 
 describe('sign-in and sessions', () => {
   it('rejects wrong passwords, requests without CSRF header and anonymous access', async () => {
-    expect(await admin.get('/api/auth/config')).toEqual({ local: true, ldap: false, oidc: null });
+    expect(await admin.get('/api/auth/config')).toEqual({ local: true, registration: false, ldap: false, oidc: null });
     expect(await statusOf(admin.get('/api/auth/me'))).toBe(401);
     expect(await statusOf(admin.login('admin', 'wrong-password'))).toBe(401);
     const noCsrf = await fetch(app.base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
@@ -150,6 +153,15 @@ describe('knowledge base', () => {
     const hits = await bob.get('/api/knowledge/search?q=Urlaubsantrag Personalportal');
     expect(hits[0]).toMatchObject({ title: 'urlaub.md', collection: 'Handbuch' });
     ids.uploadDoc = hits[0].documentId;
+    // provenance is recorded but only returned on request
+    expect(hits[0]).not.toHaveProperty('meta');
+    const withMeta = await bob.get('/api/knowledge/search?q=Urlaubsantrag Personalportal&meta=1');
+    expect(withMeta[0].meta).toMatchObject({ source: { name: 'Uploads', type: 'upload' }, author: 'Administrator' });
+    expect(Date.now() - Date.parse(withMeta[0].meta.modifiedAt)).toBeLessThan(60_000);
+    expect(await bob.get(`/api/knowledge/documents/${ids.uploadDoc}/meta`)).toMatchObject({
+      title: 'urlaub.md', author: 'Administrator', source: { name: 'Uploads', type: 'upload' },
+    });
+    expect(await statusOf(new Client(app.base).get(`/api/knowledge/documents/${ids.uploadDoc}/meta`))).toBe(401);
     const open = await bob.raw('GET', `/api/knowledge/documents/${hits[0].documentId}/open`);
     expect(await open.text()).toContain('Personalportal');
     expect((await bob.get('/api/knowledge/collections')).collections.map((c: { name: string }) => c.name)).toEqual(['Handbuch']);
@@ -174,6 +186,10 @@ describe('knowledge base', () => {
     // bob is in IT-Team -> sees the collection; the hit links to the file share
     const hits = await bob.get('/api/knowledge/search?q=ORA-19809 FRA');
     expect(hits[0]).toMatchObject({ title: 'backup.md', collection: 'IT-Betrieb' });
+    // file shares have no author, but the file's mtime is the last-change time
+    const fileMeta = await bob.get(`/api/knowledge/documents/${hits[0].documentId}/meta`);
+    expect(fileMeta).toMatchObject({ author: null, source: { name: 'Share IT', type: 'filesystem' } });
+    expect(Date.parse(fileMeta.modifiedAt)).toBe(fs.statSync(path.join(shares, 'it', 'backup.md')).mtime.getTime());
     const open = await bob.raw('GET', `/api/knowledge/documents/${hits[0].documentId}/open`);
     expect(open.status).toBe(302);
 
@@ -187,6 +203,168 @@ describe('knowledge base', () => {
     await admin.del(`/api/admin/knowledge/documents/${ids.uploadDoc}`);
     expect(await statusOf(bob.get(`/api/knowledge/documents/${ids.uploadDoc}/open`))).toBe(404);
     await admin.patch(`/api/admin/knowledge/collections/${it.id}`, { description: 'nur IT' });
+  });
+});
+
+describe('article contributions', () => {
+  it('requires authentication and collection access before accepting an article', async () => {
+    const anonymous = new Client(app.base);
+    expect(await statusOf(anonymous.post('/api/knowledge/articles', { collectionId: ids.public, title: 'x', body: 'x' }))).toBe(401);
+    expect(await statusOf(bob.post('/api/knowledge/articles', { collectionId: ids.public, title: '', body: 'x' }))).toBe(400);
+    const privateCollection = await admin.post('/api/admin/knowledge/collections', { name: 'Nur Admins' });
+    expect(await statusOf(bob.post('/api/knowledge/articles', { collectionId: privateCollection.id, title: 'Secret', body: 'Not allowed' }))).toBe(404);
+    expect(await statusOf(bob.get('/api/admin/knowledge/articles'))).toBe(403);
+  });
+
+  it('holds submissions for admin review and indexes only approved articles', async () => {
+    const proposed = { collectionId: ids.public, title: 'VPN Anleitung', body: 'VPN Zugang über das Mitarbeiterportal beantragen.' };
+    const first = await bob.post('/api/knowledge/articles', proposed);
+    const second = await bob.post('/api/knowledge/articles', { ...proposed, title: 'Veraltete Anleitung' });
+    expect(first.status).toBe('pending');
+    expect((await bob.get('/api/knowledge/articles')).map((a: { status: string }) => a.status)).toEqual(['pending', 'pending']);
+    // Even a document indexed during an interrupted review must not leak before approval.
+    const [source] = await db.select().from(knowledgeSources)
+      .where(and(eq(knowledgeSources.collectionId, ids.public), eq(knowledgeSources.type, 'upload')));
+    expect(await indexDocument(source, {
+      externalId: `article:${first.id}`, title: proposed.title, filename: 'vpn.md', text: proposed.body,
+    }, (await getEmbedder())!)).toBe('added');
+    const [unapproved] = await db.select().from(knowledgeDocuments)
+      .where(and(eq(knowledgeDocuments.sourceId, source.id), eq(knowledgeDocuments.externalId, `article:${first.id}`)));
+    expect(await statusOf(bob.get(`/api/knowledge/documents/${unapproved.id}/open`))).toBe(404);
+    expect((await bob.get('/api/knowledge/search?q=Mitarbeiterportal VPN')).some((h: { title: string }) => h.title === proposed.title)).toBe(false);
+    expect(await statusOf(bob.post(`/api/admin/knowledge/articles/${first.id}/approve`))).toBe(403);
+
+    const queue = await admin.get('/api/admin/knowledge/articles');
+    expect(queue).toEqual(expect.arrayContaining([expect.objectContaining({ id: first.id, body: proposed.body, author: 'bob' })]));
+    const approved = await admin.post(`/api/admin/knowledge/articles/${first.id}/approve`);
+    expect(approved.status).toBe('approved');
+    expect(await bob.get(`/api/knowledge/documents/${approved.documentId}/meta`)).toMatchObject({ author: 'Bob Beispiel' });
+    expect(await statusOf(admin.post(`/api/admin/knowledge/articles/${first.id}/approve`))).toBe(409);
+    expect((await bob.get('/api/knowledge/search?q=Mitarbeiterportal VPN')).some((h: { title: string }) => h.title === proposed.title)).toBe(true);
+    const open = await bob.raw('GET', `/api/knowledge/documents/${approved.documentId}/open`);
+    expect(await open.text()).toContain(proposed.body);
+
+    expect((await admin.post(`/api/admin/knowledge/articles/${second.id}/reject`)).status).toBe('rejected');
+    expect(await statusOf(admin.post(`/api/admin/knowledge/articles/${second.id}/approve`))).toBe(409);
+    expect((await admin.get('/api/admin/knowledge/articles')).some((a: { id: string }) => a.id === second.id)).toBe(false);
+    expect((await bob.get('/api/knowledge/articles')).map((a: { status: string }) => a.status)).toEqual(['rejected', 'approved']);
+    expect((await bob.get('/api/knowledge/search?q=Veraltete Anleitung')).some((h: { title: string }) => h.title === 'Veraltete Anleitung')).toBe(false);
+  });
+});
+
+describe('article review edge cases', () => {
+  it('rejects malformed ids, lets admins reject stale reviews, and caps open submissions', async () => {
+    expect(await statusOf(admin.post('/api/admin/knowledge/articles/not-a-uuid/reject'))).toBe(400);
+
+    const stale = await bob.post('/api/knowledge/articles', { collectionId: ids.public, title: 'Hängt', body: 'Blieb im Review stecken.' });
+    await db.update(knowledgeArticles).set({ status: 'reviewing', reviewedAt: new Date(Date.now() - 20 * 60_000) })
+      .where(eq(knowledgeArticles.id, stale.id));
+    expect((await admin.get('/api/admin/knowledge/articles')).some((a: { id: string }) => a.id === stale.id)).toBe(true);
+    expect((await admin.post(`/api/admin/knowledge/articles/${stale.id}/reject`)).status).toBe('rejected');
+
+    const fresh = await bob.post('/api/knowledge/articles', { collectionId: ids.public, title: 'Läuft', body: 'Wird gerade geprüft.' });
+    await db.update(knowledgeArticles).set({ status: 'reviewing', reviewedAt: new Date() }).where(eq(knowledgeArticles.id, fresh.id));
+    expect(await statusOf(admin.post(`/api/admin/knowledge/articles/${fresh.id}/reject`))).toBe(409);
+    await db.update(knowledgeArticles).set({ status: 'rejected' }).where(eq(knowledgeArticles.id, fresh.id));
+
+    let created = 0;
+    while (created < 20 && await statusOf(bob.post('/api/knowledge/articles', { collectionId: ids.public, title: `Spam ${created}`, body: 'x' })) === 200) created++;
+    expect(created).toBe(10);
+    expect(await statusOf(bob.post('/api/knowledge/articles', { collectionId: ids.public, title: 'Zu viel', body: 'x' }))).toBe(429);
+  });
+});
+
+describe('registration and profile', () => {
+  const reg = { displayName: 'Erika Muster', email: 'erika@example.com', username: 'Erika', password: 'erika-pass-123456' };
+
+  it('is closed unless enabled and then requires admin approval before login', async () => {
+    const anonymous = new Client(app.base);
+    expect((await anonymous.get('/api/auth/config')).registration).toBe(false);
+    expect(await statusOf(anonymous.post('/api/auth/register', reg))).toBe(404);
+
+    config.REGISTRATION_ENABLED = true;
+    try {
+      expect((await anonymous.get('/api/auth/config')).registration).toBe(true);
+      expect(await statusOf(anonymous.post('/api/auth/register', { ...reg, email: 'nope' }))).toBe(400);
+      expect(await statusOf(anonymous.post('/api/auth/register', { ...reg, password: 'short' }))).toBe(400);
+      await anonymous.post('/api/auth/register', reg);
+      expect(await statusOf(anonymous.post('/api/auth/register', { ...reg, username: 'erika' }))).toBe(409);
+    } finally { config.REGISTRATION_ENABLED = false; }
+
+    const login = () => anonymous.post('/api/auth/login', { username: 'erika', password: reg.password, method: 'local' });
+    await expect(login()).rejects.toMatchObject({ status: 401 });
+    const listed = (await admin.get('/api/admin/users')).find((u: { username: string }) => u.username === 'erika');
+    expect(listed).toMatchObject({ displayName: reg.displayName, email: reg.email, active: false, pendingApproval: true });
+
+    await admin.patch(`/api/admin/users/${listed.id}`, { active: true });
+    await login();
+    const me = await anonymous.get('/api/auth/me');
+    expect(me).toMatchObject({ username: 'erika', profileCompleted: true });
+    expect((await admin.get('/api/admin/users')).find((u: { id: string }) => u.id === listed.id).pendingApproval).toBe(false);
+  });
+
+  it('asks new directory users once to confirm name and email, and the directory only fills gaps', async () => {
+    const { upsertExternalUser } = await import('../src/auth/provision.js');
+    const first = await upsertExternalUser({ source: 'ldap', externalId: 'cn=max', username: 'max', displayName: 'Max Mustermann', email: 'max@corp.example', roleFromIdp: null });
+    expect(first).toMatchObject({ displayName: 'Max Mustermann', email: 'max@corp.example', profileCompleted: false });
+
+    const session = new Client(app.base);
+    session.cookie = `ap_session=${(await import('jsonwebtoken')).default.sign({ sub: first.id }, config.SESSION_SECRET)}`;
+    expect((await session.get('/api/auth/me')).profileCompleted).toBe(false);
+    expect(await statusOf(session.put('/api/auth/profile', { displayName: 'M', email: 'bad' }))).toBe(400);
+    expect(await session.put('/api/auth/profile', { displayName: 'Maximilian Mustermann', email: 'max.m@corp.example' }))
+      .toMatchObject({ displayName: 'Maximilian Mustermann', profileCompleted: true });
+    expect(await statusOf(new Client(app.base).put('/api/auth/profile', { displayName: 'Xx', email: 'x@y.de' }))).toBe(401);
+
+    const again = await upsertExternalUser({ source: 'ldap', externalId: 'cn=max', username: 'max', displayName: null, email: null, roleFromIdp: null });
+    expect(again).toMatchObject({ displayName: 'Maximilian Mustermann', email: 'max.m@corp.example', profileCompleted: true });
+    const synced = await upsertExternalUser({ source: 'ldap', externalId: 'cn=max', username: 'max', displayName: 'Max Mustermann', email: 'max@corp.example', roleFromIdp: null });
+    expect(synced).toMatchObject({ displayName: 'Max Mustermann', email: 'max@corp.example' });
+  });
+});
+
+describe('plugins', () => {
+  it('lists deployed plugins, allows admins to disable them, and gates their API and chat tools', async () => {
+    const anonymous = new Client(app.base);
+    expect(await statusOf(anonymous.get('/api/plugins'))).toBe(401);
+    expect(await statusOf(bob.get('/api/admin/plugins'))).toBe(403);
+    expect(await statusOf(bob.patch('/api/admin/plugins/text-stats', { enabled: false }))).toBe(403);
+    expect(await statusOf(admin.patch('/api/admin/plugins/text-stats', { enabled: 'false' }))).toBe(400);
+    expect(await statusOf(admin.patch('/api/admin/plugins/no-such-plugin', { enabled: false }))).toBe(404);
+    expect((await admin.get('/api/admin/plugins'))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'text-stats', enabled: false, hasPage: true }),
+    ]));
+    expect(await bob.get('/api/plugins')).toEqual([]);
+    expect(await statusOf(bob.post('/api/plugins/text-stats/count', { text: 'Hallo Welt!' }))).toBe(404);
+    await admin.patch('/api/admin/plugins/text-stats', { enabled: true });
+    expect((await bob.post('/api/plugins/text-stats/count', { text: 'Hallo Welt!' })))
+      .toEqual({ words: 2, characters: 11 });
+    expect(await statusOf(bob.post('/api/plugins/text-stats/count', { text: '' }))).toBe(400);
+    expect(await statusOf(bob.post('/api/plugins/text-stats/count', { text: '  ' }))).toBe(400);
+
+    llm.reset();
+    llm.script = (r: ChatRequest) => toolResults(r).length
+      ? { text: `Result: ${toolResults(r).join(' ')}` }
+      : { toolCalls: [{ name: 'plugin_text_stats__count_text', args: { text: 'one two' } }] };
+    const chat = await bob.post('/api/chats', { modelId: ids.model });
+    const events = await bob.chat(chat.id, { content: 'Count the words', modelId: ids.model, useMcp: false, useKnowledge: false });
+    expect(events.find((e) => e.t === 'tool-result').output).toContain('"words":2');
+    expect(llm.chatRequests()[0].tools?.some((x) => x.function.name === 'plugin_text_stats__count_text')).toBe(true);
+
+    await admin.patch('/api/admin/plugins/text-stats', { enabled: false });
+    expect((await admin.get('/api/admin/plugins'))[0]).toMatchObject({ enabled: false });
+    expect(await bob.get('/api/plugins')).toEqual([]);
+    expect(await statusOf(bob.post('/api/plugins/text-stats/count', { text: 'hello' }))).toBe(404);
+    llm.reset();
+    llm.script = () => ({ text: 'No plugin tool' });
+    const disabledChat = await bob.post('/api/chats', { modelId: ids.model });
+    await bob.chat(disabledChat.id, { content: 'Count the words', modelId: ids.model, useMcp: false, useKnowledge: false });
+    expect(llm.chatRequests()[0].tools?.some((x) => x.function.name === 'plugin_text_stats__count_text') ?? false).toBe(false);
+
+    await admin.patch('/api/admin/plugins/text-stats', { enabled: true });
+    expect((await bob.get('/api/plugins'))[0]).toMatchObject({ id: 'text-stats', enabled: true });
+    expect((await bob.post('/api/plugins/text-stats/count', { text: 'back on' })).words).toBe(2);
+    llm.reset();
   });
 });
 

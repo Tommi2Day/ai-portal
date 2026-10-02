@@ -25,6 +25,8 @@ const schema = z.object({
 
   // Local login
   AUTH_LOCAL_ENABLED: z.string().default('true').transform((v) => v === 'true'),
+  // Public sign-up for local accounts; every account needs admin approval before it can log in
+  REGISTRATION_ENABLED: z.string().default('false').transform((v) => v === 'true'),
 
   // LDAP / Active Directory
   LDAP_ENABLED: bool,

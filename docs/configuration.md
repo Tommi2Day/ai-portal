@@ -85,6 +85,7 @@ kubectl -n ai-portal create configmap ai-portal-branding   --from-file=examples/
 | `BOOTSTRAP_ADMIN_USER` | `admin` | Username of the first admin |
 | `BOOTSTRAP_ADMIN_PASSWORD` | – | If set and the user table is empty, a local admin is created on start |
 | `AUTH_LOCAL_ENABLED` | `true` | Allow sign-in with local accounts |
+| `REGISTRATION_ENABLED` | `false` | Show a sign-up form on the login page (local accounts only; needs `AUTH_LOCAL_ENABLED`). New accounts stay inactive until an admin approves them |
 
 ## LDAP / Active Directory
 

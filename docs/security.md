@@ -9,6 +9,8 @@
 | Sessions | Signed JWT in an HttpOnly, SameSite=Lax cookie (`Secure` with `COOKIE_SECURE=true`). The user is reloaded from the database on every request, so deactivation and role changes apply immediately. |
 | CSRF | State-changing requests require `X-Requested-With: ai-portal`; the API allows no cross-origin requests |
 | Brute force | 20 sign-in attempts per 15 minutes and IP; 120 requests per minute and IP on `/mcp` |
+| Self-registration | Off by default (`REGISTRATION_ENABLED`). Public sign-up creates only inactive local accounts that an admin must approve; 10 registrations per hour and IP; same password rules as admin-created accounts |
+| Contributed articles | Searchable only after admin approval (enforced in search, document open and the MCP read tool); max. 10 open submissions per user |
 | LDAP | Filter values escaped (RFC 4515); empty passwords rejected to prevent anonymous binds; certificate verification on by default |
 | OIDC | Authorization code flow with PKCE, state and nonce; flow data in a signed, 10-minute cookie |
 | Access tokens | Random 256-bit tokens with prefix `ap_`, stored as SHA-256 only, expiring (≤ 365 days), revocable, bound to an active user |
@@ -18,7 +20,7 @@
 | Container | Non-root, read-only root file system, all capabilities dropped, seccomp `RuntimeDefault` |
 | Network | NetworkPolicy allows ingress only from the ingress controller; restrict egress to known targets in production |
 
-**Knowledge base data handling:** only the extracted text of documents is stored; original files are discarded after extraction. Permissions are enforced per collection, not per document — collections should only contain content with the same audience.
+**Knowledge base data handling:** only the extracted text of documents is stored; original files are discarded after extraction. Permissions are enforced per collection, not per document — collections should only contain content with the same audience. Author, data source and last-change time of a document are stored as metadata and shown only to users who may see the document.
 
 **Recommended before production:** penetration test, virus scanning for uploads (e.g. ClamAV sidecar), egress restrictions, secret rotation procedure, retention jobs for chats and audit data.
 
@@ -29,10 +31,13 @@ Each event is written to the `audit_log` table and as a JSON line with `"audit":
 | Action | Recorded when | Details |
 | --- | --- | --- |
 | `auth.login` / `auth.login_failed` / `auth.logout` | Sign-in and sign-out | Method, failure reason |
+| `auth.register` / `auth.profile` | Self-registration; name and email confirmed after the first LDAP/SSO sign-in | – |
 | `user.create` / `user.update` / `user.delete` | User management | Changed fields (never passwords) |
 | `provider.*`, `model.*` | Provider and model changes | Changed fields; `secretChanged` instead of key values |
 | `mcp.create` / `mcp.update` / `mcp.delete` / `mcp.test` | User MCP server changes | Name, URL, tool count |
 | `mcp.tool_call` | Every MCP tool call in a chat | Server, tool, duration, error |
+| `plugin.update` | Admin enables or disables a deployed plugin | New state |
+| `plugin.tool_call` | Every plugin tool call in a chat | Tool, duration, error |
 | `chat.create` / `chat.delete` | Chat lifecycle | Title |
 | `chat.prompt` | Every message sent | Model, provider, character count, attachment count; full text only with `AUDIT_LOG_PROMPTS=true` |
 | `chat.completion` / `chat.error` | Every answer | Model, duration, input/output tokens, tool calls, message IDs, error |
@@ -40,6 +45,7 @@ Each event is written to the `audit_log` table and as a JSON line with `"audit":
 | `knowledge.search` | Every knowledge search (chat, MCP, API) | Channel, collections, hit count, document IDs found; query text only with `AUDIT_LOG_PROMPTS=true` |
 | `knowledge.document.read` / `knowledge.document.open` | Full document read via MCP / opened via link | Title |
 | `knowledge.sync` | Every sync run | Source, trigger, statistics, duration, error |
+| `knowledge.article.submit` / `.approve` / `.reject` | Contributed articles | Title, collection, document ID |
 | `knowledge.upload`, `knowledge.collection.*`, `knowledge.source.*`, `knowledge.document.delete`, `knowledge.settings` | Knowledge administration | Names, configuration (never secrets) |
 | `token.create` / `token.delete` / `token.auth_failed` | Access tokens | Name, expiry, failure reason |
 | `audit.export` | CSV export | Filter, row count |

@@ -5,8 +5,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+Database migrations 0006–0008 run at start; no manual steps.
+
+### Added
+
+- Code-deployed plugins (`server/src/plugins/`, `web/src/plugins/`): authenticated API routes, namespaced chat tools
+  (`plugin_<id>__<tool>`) and bundled UI pages, enabled per plugin by admins (default off, persisted in `settings`,
+  checked again at every call, audited as `plugin.update` / `plugin.tool_call`). Sample plugin *Text statistics*;
+  see `docs/plugins.md`.
+- Contributed knowledge articles: signed-in users submit Markdown articles to collections they can access, admins
+  approve or reject them under *Knowledge base → Review articles*. Unapproved articles are not searchable, readable or
+  openable (search, document open, MCP). At most 10 open submissions per user; stale reviews can be rejected or retried.
+- Self-registration for local accounts (`REGISTRATION_ENABLED`, default `false`): sign-up form with full name, email,
+  username and password; accounts stay inactive (*Awaiting approval*) until an admin activates them.
+  `POST /api/auth/register`, rate-limited.
+- Profile page after the first LDAP/OIDC sign-in: full name and email prefilled from the directory, confirmed or
+  corrected once (`PUT /api/auth/profile`, `profileCompleted` in `GET /api/auth/me`).
+- Author, data source and last-change time per knowledge document (Confluence, SharePoint/OneDrive, file shares,
+  uploads, articles), returned on request: `GET /api/knowledge/search?meta=1`, `GET /api/knowledge/documents/:id/meta`,
+  parameter `metadaten` of the MCP tools `wissensdatenbank_suchen` / `dokument_lesen` and of the chat tool; author and
+  last-change columns in the admin document list. Existing documents are filled in on the next sync where the source
+  lists the values.
+- Audit actions `auth.register`, `auth.profile`, `knowledge.article.submit|approve|reject`, `plugin.update`,
+  `plugin.tool_call`.
+
 ### Changed
 
+- Directory sync: an empty LDAP/OIDC name or email attribute no longer erases a stored value.
 - Default `DATABASE_URL` without a password (`postgres://aiportal@localhost:5432/aiportal`): set the full URL or
   `PGPASSWORD` for anything but a trust-auth local database.
 - Code quality (SonarQube): the chat stream handling moved into `server/src/ai/answer.ts` (`AnswerRecorder`, prompt and

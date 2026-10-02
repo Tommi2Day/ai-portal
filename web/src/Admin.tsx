@@ -4,28 +4,62 @@ import { Knowledge } from './Knowledge';
 import { availableLabel, useAvailable } from './availableModels';
 import { locale, t } from './i18n';
 
-type Tab = 'users' | 'providers' | 'knowledge' | 'audit';
+type Tab = 'users' | 'providers' | 'knowledge' | 'audit' | 'plugins';
 
-export function Admin({ me }: { me: Me }) {
+export function Admin({ me, onPluginsChanged }: { me: Me; onPluginsChanged?: () => void }) {
   const [tab, setTab] = useState<Tab>('providers');
   return (
     <div className="page">
       <div className="seg">
         <button className={tab === 'providers' ? 'active' : ''} onClick={() => setTab('providers')}>{t('Anbieter & Modelle')}</button>
         <button className={tab === 'knowledge' ? 'active' : ''} onClick={() => setTab('knowledge')}>{t('Wissensdatenbank')}</button>
+        <button className={tab === 'plugins' ? 'active' : ''} onClick={() => setTab('plugins')}>{t('Plugins')}</button>
         <button className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}>{t('Benutzer')}</button>
         <button className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}>{t('Audit-Log')}</button>
       </div>
       {tab === 'users' && <Users me={me} />}
       {tab === 'providers' && <Providers />}
       {tab === 'knowledge' && <Knowledge />}
+      {tab === 'plugins' && <Plugins onChanged={onPluginsChanged} />}
       {tab === 'audit' && <Audit />}
     </div>
   );
 }
 
+interface Plugin { id: string; name: string; description: string; enabled: boolean; hasPage: boolean }
+
+function Plugins({ onChanged }: { onChanged?: () => void }) {
+  const [plugins, setPlugins] = useState<Plugin[]>([]);
+  const [error, setError] = useState('');
+  useEffect(() => { api<Plugin[]>('/admin/plugins').then(setPlugins).catch((e: Error) => setError(e.message)); }, []);
+
+  const toggle = async (plugin: Plugin) => {
+    setError('');
+    try {
+      const updated = await api<{ enabled: boolean }>(`/admin/plugins/${plugin.id}`, { method: 'PATCH', body: { enabled: !plugin.enabled } });
+      setPlugins((list) => list.map((p) => p.id === plugin.id ? { ...p, enabled: updated.enabled } : p));
+      onChanged?.();
+    } catch (e) { setError((e as Error).message); }
+  };
+
+  return (
+    <>
+      <h3>{t('Plugins')}</h3>
+      <table>
+        <thead><tr><th>{t('Name')}</th><th>{t('Beschreibung')}</th><th>{t('Aktiv')}</th></tr></thead>
+        <tbody>{plugins.map((p) => (
+          <tr key={p.id}><td>{t(p.name)}</td><td>{t(p.description)}</td>
+            <td><input type="checkbox" checked={p.enabled} aria-label={`${t(p.name)}: ${t('Aktiv')}`} onChange={() => toggle(p)} /></td>
+          </tr>
+        ))}</tbody>
+      </table>
+      {error && <p className="error">{error}</p>}
+    </>
+  );
+}
+
 /* ---------------- Users ---------------- */
-interface U { id: string; username: string; displayName: string | null; email: string | null; authSource: string; role: 'admin' | 'user'; groups: string[]; active: boolean; lastLoginAt: string | null }
+interface U { id: string; username: string; displayName: string | null; email: string | null; authSource: string; role: 'admin' | 'user'; groups: string[]; active: boolean; pendingApproval?: boolean; lastLoginAt: string | null }
 
 function Users({ me }: { me: Me }) {
   const [list, setList] = useState<U[]>([]);
@@ -51,7 +85,7 @@ function Users({ me }: { me: Me }) {
         <tbody>
           {list.map((u) => (
             <tr key={u.id}>
-              <td>{u.username}<div className="muted small">{u.displayName} {u.email}</div></td>
+              <td>{u.username}<div className="muted small">{u.displayName} {u.email}</div>{u.pendingApproval && <div className="small"><strong>{t('Wartet auf Freigabe')}</strong></div>}</td>
               <td>{u.authSource}</td>
               <td className="small">
                 {u.groups.join(', ') || '–'}

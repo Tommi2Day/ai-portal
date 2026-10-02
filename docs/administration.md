@@ -7,7 +7,8 @@ Everything in this guide is done in the web UI under **Administration** (visible
 **Tab “Users”**
 
 - **Local users** are created here (username, display name, password ≥ 12 characters, role). Passwords can be reset via “Password”.
-- **LDAP and SSO users** are created automatically on their first sign-in. Their display name, email and groups are refreshed on every sign-in.
+- **Self-registration** (optional, `REGISTRATION_ENABLED=true`): the login page offers “Register a new account” (full name, email, username, password). Such accounts are marked “Awaiting approval” and cannot sign in until you tick “Active”; delete the account to reject it.
+- **LDAP and SSO users** are created automatically on their first sign-in. After that first sign-in they see a one-time “Complete your profile” page with full name and email prefilled from the directory. Values the directory provides are refreshed on every sign-in and overwrite manual edits; empty directory attributes never erase a stored value.
 - **Roles:** *Admin* sees the administration area; *Users* use chat, MCP servers and the knowledge base. If an admin group (LDAP) or admin role value (OIDC) is configured, the role is synced from the directory on every sign-in and manual changes are overwritten.
 - **Groups** decide which knowledge collections a user can search. For local users, edit them via “change”; for LDAP/SSO users they come from the directory.
 - **Deactivating** a user (“Active” unchecked) takes effect immediately — including personal access tokens.
@@ -77,13 +78,23 @@ Write a short description: the model sees it and uses it to decide where to sear
 
 **Sync:** each source has an interval (15 min, hourly, daily, manual). “Sync now” starts a run immediately. The result column shows `+added ~updated =unchanged −removed ✕errors`. “Documents” lists indexed documents with status and errors; single documents can be removed.
 
+**Author and last change:** every document records who last changed it and when, as far as the source tells: Confluence (last editor and version time; on Cloud the editor name is resolved when a page is re-indexed), SharePoint/OneDrive (last modified by/at), file shares (file modification time, no author), uploads (the uploading admin, upload time) and approved articles (the writer). Documents indexed before this was recorded are filled in on the next sync where the source lists the values; others on their next change. The “Documents” list shows both columns; search results and the MCP tools return them on request (see [API](api.md)).
+
 **What gets indexed:** PDF (with a text layer), DOCX, PPTX, XLSX, HTML, Markdown, text, CSV/JSON/YAML/XML and source code. Scanned PDFs without text, images and other binaries are skipped with a note. Only text is stored — hits link to the original in the source system; uploads link to a text version.
+
+### Reviewing contributed articles
+
+Signed-in users can submit Markdown articles to collections they can access via **Contribute article**. Pending submissions appear under **Review articles** in the **Knowledge base** admin tab with their author, collection and full text. **Approve** indexes the text and makes it searchable according to the collection's access rules; **Reject** leaves it unpublished. If indexing fails, the article stays pending so an admin can retry. Approved articles are managed alongside uploaded documents.
 
 ## Audit log
 
 **Tab “Audit log”**
 
 Filter by user, action prefix (e.g. `auth.`, `chat.`, `knowledge.`) and time range. “CSV export” downloads the filtered entries (up to 100,000 rows); the export itself is audited. Failed actions are highlighted. See [security & audit](security.md#audit-events) for the list of events.
+
+## Plugins
+
+**Tab “Plugins”** lists code-deployed plugins, initially disabled. Check **Active** to enable a plugin's page, chat tools and API routes; uncheck it to disable them. The setting persists in the database across restarts and replicas. Only trusted code deployed with the server can provide a plugin; see [Plugins](plugins.md) for registration and the included Text statistics example.
 
 ## Routine tasks
 

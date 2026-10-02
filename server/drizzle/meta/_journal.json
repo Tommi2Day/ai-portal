@@ -43,6 +43,27 @@
       "when": 1790427878789,
       "tag": "0005_knowledge_drop_originals",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790867639326,
+      "tag": "0006_foamy_mandrill",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790947564508,
+      "tag": "0007_user_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790948006761,
+      "tag": "0008_knowledge_provenance",
+      "breakpoints": true
     }
   ]
 }
