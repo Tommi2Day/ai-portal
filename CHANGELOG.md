@@ -5,6 +5,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Filesystem knowledge source: on Windows, the document `externalId`/`title` kept the OS path separator (`\`)
+  instead of `/`, so the same share synced from Windows and Linux produced different document identities.
+
 ## [0.2.0] - 2026-10-02
 
 Version re-baseline: no functional changes since 0.0.3. The numbering continues at 0.2.0 so that it stays above the

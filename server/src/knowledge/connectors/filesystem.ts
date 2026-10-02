@@ -36,10 +36,11 @@ export function filesystemConnector(cfg: FilesystemConfig): Connector {
       if (!e.isFile() || !KNOWLEDGE_EXT.test(e.name)) continue;
       const st = await fs.stat(abs);
       if (st.size > maxBytes) continue;
-      const relUrl = rel.split(path.sep).map(encodeURIComponent).join('/');
+      const relPosix = rel.split(path.sep).join('/');
+      const relUrl = relPosix.split('/').map(encodeURIComponent).join('/');
       yield {
-        externalId: rel,
-        title: rel,
+        externalId: relPosix,
+        title: relPosix,
         filename: e.name,
         size: st.size,
         modifiedAt: st.mtime,
