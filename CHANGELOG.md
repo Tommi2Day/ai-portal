@@ -52,6 +52,9 @@ Database migrations 0006–0008 run at start; no manual steps.
   (`onConflictDoNothing`).
 - `sort()` without compare function for LDAP/OIDC groups (now `localeCompare`) and XLSX sheets (now numeric, `sheet2`
   before `sheet10`).
+- Chat streaming (`streamText` in `server/src/routes/chats.ts`): every provider error (context length, rate limit, …)
+  was also dumped to stderr via the AI SDK's default `onError`, even though it is already captured and reported to
+  the client; now a no-op `onError` suppresses the redundant logging.
 
 ## [0.0.2] - 2026-09-28
 

@@ -186,6 +186,7 @@ chatsRouter.post('/:id/messages', async (req, res) => {
       tools: Object.keys(tools).length ? tools : undefined,
       stopWhen: stepCountIs(config.MAX_TOOL_STEPS),
       abortSignal: abort.signal,
+      onError: () => {}, // errors surface via the fullStream 'error' part below; the SDK default would also console.error them
     }, (ev) => send(ev.t === 'error' ? { ...ev, message: tr(ev.message, lang) } : ev));
   } catch (e) {
     rec.error = abort.signal.aborted ? 'abgebrochen' : errorText(e);
