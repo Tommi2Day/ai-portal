@@ -1,5 +1,5 @@
 # ---------- build web ----------
-FROM node:22-alpine AS web
+FROM node:24-alpine AS web
 WORKDIR /web
 COPY web/package*.json ./
 RUN npm ci
@@ -7,7 +7,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---------- build server ----------
-FROM node:22-alpine AS server
+FROM node:24-alpine AS server
 WORKDIR /server
 COPY server/package*.json ./
 RUN npm ci
@@ -15,9 +15,11 @@ COPY server/ ./
 RUN npm run build && npm prune --omit=dev
 
 # ---------- runtime ----------
-FROM node:22-alpine
+FROM node:24-alpine
 ENV NODE_ENV=production PORT=8080 STATIC_DIR=/app/web
 WORKDIR /app
+# npm/npx/corepack are not needed at runtime; dropping them removes npm's bundled dependencies from the image scan
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn*
 COPY --from=server /server/node_modules ./node_modules
 COPY --from=server /server/dist ./dist
 COPY --from=server /server/drizzle ./drizzle

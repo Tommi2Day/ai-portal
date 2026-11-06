@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22        # same major as the runtime image (node:22-alpine)
+          node-version: 24        # same major as the runtime image (node:24-alpine)
           cache: npm
           cache-dependency-path: ${{ matrix.package }}/package-lock.json
 
@@ -67,7 +67,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: server/package-lock.json
 
