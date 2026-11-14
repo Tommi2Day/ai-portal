@@ -19,6 +19,8 @@ export const mcpTransport = pgEnum('mcp_transport', ['streamable-http', 'sse']);
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /** Admin note (max. 300 characters), shown in the admin UI only. */
+  comment: text('comment'),
   username: text('username').notNull(),
   displayName: text('display_name'),
   email: text('email'),
@@ -39,6 +41,8 @@ export const users = pgTable('users', {
 
 export const providers = pgTable('providers', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /** Admin note (max. 300 characters), shown in the admin UI only. */
+  comment: text('comment'),
   name: text('name').notNull(),
   type: providerType('type').notNull(),
   baseUrl: text('base_url'),
@@ -53,6 +57,8 @@ export const providers = pgTable('providers', {
 
 export const models = pgTable('models', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /** Admin note (max. 300 characters), shown in the admin UI only. */
+  comment: text('comment'),
   providerId: uuid('provider_id').notNull().references(() => providers.id, { onDelete: 'cascade' }),
   modelId: text('model_id').notNull(),
   displayName: text('display_name').notNull(),
@@ -72,6 +78,8 @@ export const mcpServers = pgTable('mcp_servers', {
   transport: mcpTransport('transport').notNull().default('streamable-http'),
   /** AES-GCM encrypted JSON object of HTTP headers (e.g. Authorization). */
   headersEnc: text('headers_enc'),
+  /** AES-GCM encrypted JSON {tokenUrl, clientId, clientSecret, scope?}: OAuth 2.0 client-credentials login of the portal. */
+  oauthEnc: text('oauth_enc'),
   enabled: boolean('enabled').notNull().default(true),
   lastStatus: text('last_status'),
   lastError: text('last_error'),
@@ -140,10 +148,12 @@ export const settings = pgTable('settings', {
 
 /* ---------------- Knowledge base (RAG) ---------------- */
 
-export const knowledgeSourceType = pgEnum('knowledge_source_type', ['upload', 'filesystem', 'confluence', 'sharepoint']);
+export const knowledgeSourceType = pgEnum('knowledge_source_type', ['upload', 'filesystem', 'confluence', 'sharepoint', 'http']);
 
 export const knowledgeCollections = pgTable('knowledge_collections', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /** Admin note (max. 300 characters), shown in the admin UI only. */
+  comment: text('comment'),
   name: text('name').notNull(),
   description: text('description'),
   /** Visible to everyone who is logged in. */
@@ -155,13 +165,20 @@ export const knowledgeCollections = pgTable('knowledge_collections', {
 
 export const knowledgeSources = pgTable('knowledge_sources', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /** Admin note (max. 300 characters), shown in the admin UI only. */
+  comment: text('comment'),
   collectionId: uuid('collection_id').notNull().references(() => knowledgeCollections.id, { onDelete: 'cascade' }),
   type: knowledgeSourceType('type').notNull(),
   name: text('name').notNull(),
   config: jsonb('config').$type<Record<string, unknown>>().notNull().default({}),
   secretEnc: text('secret_enc'),
-  /** 0 = manual only */
+  /** Automatic update every n minutes; 0 = no schedule (manual and/or external trigger) */
   syncIntervalMinutes: integer('sync_interval_minutes').notNull().default(60),
+  /** Full replace: every update re-imports all documents in place (and removes vanished ones), even if the source reports no change. */
+  replaceOnSync: boolean('replace_on_sync').notNull().default(false),
+  /** SHA-256 of the token that lets an external system trigger an update (webhook); null = no external trigger. */
+  triggerTokenHash: text('trigger_token_hash'),
+  triggerTokenCreatedAt: timestamp('trigger_token_created_at', { withTimezone: true }),
   enabled: boolean('enabled').notNull().default(true),
   lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
   lastStatus: text('last_status'),

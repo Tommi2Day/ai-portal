@@ -1,0 +1,1 @@
+ALTER TYPE "public"."knowledge_source_type" ADD VALUE 'http';
