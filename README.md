@@ -13,15 +13,17 @@ Self-hosted web application for internal use of generative AI: a chat interface 
 ## Features
 
 - **Chat** with streaming answers, Markdown, tool calls shown inline, attachments (logs, code, PDF, Office documents, images)
-- **Sign-in** with local accounts, LDAP / Active Directory and OIDC (Azure AD / Entra ID, Keycloak, …) in parallel; roles *admin* and *user*; group sync
+- **Sign-in** with local accounts, LDAP / Active Directory and OIDC single sign-on (Azure AD / Entra ID, Keycloak, …) in parallel; roles *admin* and *user*; group sync; SSO admins and allowed users by group, e-mail or object ID, managed in the admin UI
 - **AI providers** configured by admins: Anthropic Claude, AWS Bedrock, GitHub Models / GitHub Enterprise, any OpenAI-compatible endpoint; users choose from an approved model catalog
-- **Per-user MCP servers** (Streamable HTTP, SSE) with encrypted credentials
+- **Per-user MCP servers** (Streamable HTTP, SSE) with encrypted credentials — static headers or OAuth 2.0 client credentials (the portal fetches and caches the tokens)
 - **Code-deployed plugins** for chat tools, authenticated API endpoints and UI pages; admins can disable them ([plugin guide](docs/plugins.md))
-- **Knowledge base (RAG)** from uploads, file shares, Confluence (Cloud and Server/DC) and SharePoint / OneDrive — text only, every hit links to its source, with author and last-change time on request; hybrid search (pgvector + full text); access per collection and group
+- **Knowledge base (RAG)** from uploads, file shares, Confluence (Cloud and Server/DC, whole spaces or page trees with configurable subpages), SharePoint / OneDrive and web pages (HTTP crawler with subpage links) — updated automatically, manually or by an external trigger (webhook), incrementally or as a full replace of the stored content — text only, every hit links to its source, with author and last-change time on request; hybrid search (pgvector + full text); access per collection and group
 - **Sign-up and profile:** optional self-registration with admin approval; LDAP/Entra users confirm name and email (prefilled from the directory) at first sign-in
 - **Contributed articles** written in the browser by signed-in users and reviewed by admins before they enter the knowledge base
-- **Knowledge base as an MCP server** at `/mcp` for LibreChat, Claude Desktop, IDEs — with personal access tokens
+- **Knowledge base as an MCP server** at `/mcp` for LibreChat, Claude Desktop, IDEs — with personal access tokens or OAuth 2.0 access tokens from your identity provider
 - **Audit log** in PostgreSQL (UI with filters and CSV export) and as JSON on stdout
+- **Admin notes:** a comment column on users, providers, models, collections, sources and SSO assignments for small notes (ticket, owner, expiry); admin-only
+- **Secrets stay secret:** credentials are write-only and masked in logs, audit entries, error texts and the UI (new tokens stay hidden until revealed)
 - **Branding:** own name, logo and colors via environment variables, no rebuild ([configuration](docs/configuration.md#branding))
 - **Runs anywhere containers run:** one stateless image + PostgreSQL; Docker Compose and Kubernetes manifests included
 
@@ -35,16 +37,20 @@ The user interface is available in **German and English** (switch in the top bar
 
 <table>
   <tr>
-    <td width="50%" valign="top"><b>MCP servers and access tokens</b> — per-user MCP servers; the knowledge base as MCP server for other tools<br><img src="docs/images/mcp.en.png" alt="MCP servers and access tokens"></td>
-    <td width="50%" valign="top"><b>Providers and models</b> — AI providers and the model catalog users choose from<br><img src="docs/images/admin-providers.en.png" alt="Administration: providers and models"></td>
+    <td width="50%" valign="top"><b>MCP servers and access tokens</b> — per-user MCP servers (headers or OAuth 2.0 client credentials); the knowledge base as MCP server for other tools<br><img src="docs/images/mcp.en.png" alt="MCP servers and access tokens"></td>
+    <td width="50%" valign="top"><b>Providers and models</b> — AI providers and the model catalog users choose from, with admin notes<br><img src="docs/images/admin-providers.en.png" alt="Administration: providers and models"></td>
   </tr>
   <tr>
-    <td valign="top"><b>Knowledge base</b> — embedding model, collections with access groups, sources with sync status<br><img src="docs/images/admin-knowledge.en.png" alt="Administration: knowledge base"></td>
-    <td valign="top"><b>Users</b> — local, LDAP and SSO users with roles and groups<br><img src="docs/images/admin-users.en.png" alt="Administration: users"></td>
+    <td valign="top"><b>Knowledge base</b> — embedding model, collections with access groups, sources with update mode, sync status and notes<br><img src="docs/images/admin-knowledge.en.png" alt="Administration: knowledge base"></td>
+    <td valign="top"><b>Users</b> — local, LDAP and SSO users with roles, groups and notes<br><img src="docs/images/admin-users.en.png" alt="Administration: users"></td>
   </tr>
   <tr>
     <td valign="top"><b>Audit log</b> — filter and CSV export<br><img src="docs/images/admin-audit.en.png" alt="Administration: audit log"></td>
-    <td valign="top"><b>Sign-in</b> — local, LDAP and SSO; <a href="docs/configuration.md#branding">with your own logo and colors</a><br><img src="docs/images/login.en.png" alt="Sign-in page"><br><img src="docs/images/branding-login.png" alt="Sign-in page with corporate branding"></td>
+    <td valign="top"><b>Sign-in</b> — local, LDAP and SSO; <a href="docs/configuration.md#branding">with your own logo and colors</a><br><img src="docs/images/login.en.png" alt="Sign-in page with company account (LDAP), local account and single sign-on"><br><img src="docs/images/branding-login.png" alt="Sign-in page with corporate branding"></td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Single sign-on</b> — SSO admins and allowed users by group, e-mail or object ID<br><img src="docs/images/admin-sso.en.png" alt="Administration: single sign-on assignments"></td>
+    <td valign="top"><b>Source settings</b> — active switch, update mode (automatic, manual or webhook), full replace of the stored content, credentials, webhook URL<br><img src="docs/images/admin-knowledge-update.en.png" alt="Administration: settings of a knowledge source"></td>
   </tr>
 </table>
 
@@ -110,16 +116,25 @@ cd web && npm test       # login and MCP pages, chat stream handling, model sele
 
 `npm run test:watch` re-runs tests on changes.
 
-Integration tests run the portal against real PostgreSQL/pgvector, [pg-mcp-server](https://github.com/Tommi2Day/pg-mcp-server) and [oracle-mcp-server](https://github.com/Tommi2Day/oracle-mcp-server) (with Oracle Free) in Docker, with a scripted mock LLM — the complete chain portal → model → MCP tool → database → answer, the knowledge base and the provider requests. Details: [server/test/integration](server/test/integration/README.md).
+Linting (ESLint with typescript-eslint, plus the React hooks rules in `web/`; warnings fail the run): `npm run lint` in `server/` and `web/`, `npm run lint:fix` applies the automatic fixes. CI runs the linters before the tests.
+
+Integration tests run the portal against real PostgreSQL/pgvector, [pg-mcp-server](https://github.com/Tommi2Day/pg-mcp-server) (with and without OAuth, against a real Keycloak) and [oracle-mcp-server](https://github.com/Tommi2Day/oracle-mcp-server) (with Oracle Free) in Docker, with a scripted mock LLM — the complete chain portal → model → MCP tool → database → answer, the knowledge base and the provider requests. Details: [server/test/integration](server/test/integration/README.md).
 
 ```bash
 docker compose -f docker-compose.test.yml up -d --wait
 cd server && npm run test:integration      # IT_SKIP_ORACLE=1 without the Oracle containers
 ```
 
-GitHub Actions (`.github/workflows/ci.yml`) runs unit tests with coverage (uploaded to Codecov), audit, translation check and build for `server/` and `web/`, the integration tests with the Docker stack, and a Docker image build on every push and pull request.
+GitHub Actions (`.github/workflows/`):
 
-Releases (`.github/workflows/release.yml`) publish the image [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal) on Docker Hub after unit and integration tests: push a tag `X.Y.Z` (→ `:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:sha-<short>`), or start the workflow manually with a version, which first sets it in both `package.json` files and `deploy/k8s/kustomization.yaml` on `main`.
+| Workflow | What it does |
+| --- | --- |
+| `ci.yml` | On every push and pull request: **Lint & Test** for `server/` and `web/` (audit, ESLint, translation check, tests with coverage uploaded to Codecov, build), then the **integration tests** against the Docker stack (PostgreSQL/pgvector, Keycloak, pg-mcp-server with and without OAuth, Oracle + oracle-mcp-server) and a **Docker image build** with a start-up smoke test |
+| `release.yml` | Publishes the image [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal) on Docker Hub and creates the GitHub release after lint, unit and integration tests. Push a tag `X.Y.Z` (→ `:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:sha-<short>`), or start the workflow manually with a version: it validates the version, sets it in both `package.json` files and `deploy/k8s/kustomization.yaml`, rolls `## [Unreleased]` of the CHANGELOG into `## [X.Y.Z]`, commits to `main` and creates the tag. The release notes are that CHANGELOG section plus the generated list of pull requests |
+| `dependabot-automerge.yml` | Dependabot (`.github/dependabot.yml`, monthly: npm for `server/` and `web/`, Docker, Actions) pull requests are updated and set to auto-merge once the required checks pass; major version bumps are left for manual review |
+| `dockerhub-description.yml` | Pushes `DOCKERHUB.md` (the compact README) and the short description to Docker Hub when it changes on `main` |
+
+Repository secrets: `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (token with Read, Write, Delete scope), `CODECOV_TOKEN`. Auto-merge needs “Allow auto-merge” and branch protection with the CI checks as required status checks.
 
 Schema changes: edit `server/src/db/schema.ts`, then `npm run db:generate` (writes SQL to `server/drizzle/`).
 

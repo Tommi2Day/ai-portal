@@ -46,6 +46,7 @@ MCP servers give the assistant tools, for example to query a ticket system, moni
 
 1. Enter a name, the URL and the transport (usually “Streamable HTTP”).
 2. If the server needs authentication, enter a header, e.g. name `Authorization`, value `Bearer <token>`. The value is stored encrypted and never shown again.
+   If the server is protected by OAuth 2.0 (e.g. Entra ID or Keycloak), choose “OAuth 2.0” (client credentials) instead and enter the token URL, client ID, client secret and scope. The portal fetches and renews the access token itself; the secret is stored encrypted and never shown again.
 3. Click “Test” — you see how many tools the server offers.
 
 In the chat, the switch “MCP tools” turns them on or off per message. Each tool call appears as an expandable row with its input and result.
@@ -55,8 +56,10 @@ In the chat, the switch “MCP tools” turns them on or off per message. Each t
 The knowledge base is also an MCP server, so you can use it from LibreChat, Claude Desktop, VS Code and other MCP clients — with exactly your permissions.
 
 1. Under “MCP servers” → “Access tokens” create a token with a name and validity (30, 90 or 365 days).
-2. Copy the token immediately — it is shown only once.
+2. Copy the token immediately — it is shown only once. It appears masked; *Show* reveals it (and fills it into the setup snippet below), *Copy* puts it on the clipboard.
 3. Configure your client with the endpoint `https://<portal>/mcp` and the header `Authorization: Bearer <token>`. The page shows ready-made snippets for LibreChat and Claude Desktop.
+
+If your administrator enabled OAuth for `/mcp`, clients that support MCP authorization (Claude Code, VS Code, …) need only the URL and open a browser sign-in; no token is required. You must have signed in to the portal with SSO at least once.
 4. Revoke tokens you no longer need (“Revoke”).
 
 The tools available there: `sammlungen_auflisten` (list collections), `wissensdatenbank_suchen` (search), `dokument_lesen` (read a whole document). Pass `metadaten: true` to also get the author, data source and last-change time of each hit; in the portal chat, ask for them (“who wrote this and when was it last changed?”) and the assistant requests them.

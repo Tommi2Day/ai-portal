@@ -29,6 +29,14 @@ data:
   OIDC_ROLE_CLAIM: roles
   OIDC_USER_VALUE: AiPortal.User
   OIDC_ADMIN_VALUE: AiPortal.Admin
+  # Admins / allowed users by group, e-mail, *@domain or object ID (optional; also in Administration -> Single Sign-On)
+  # OIDC_ADMIN_GROUPS: ""
+  # OIDC_ADMIN_USERS: ""
+  # OIDC_ALLOWED_GROUPS: ""
+  # OIDC_ALLOWED_USERS: ""
+  # OAuth 2.0 access tokens on /mcp (optional, see docs/configuration.md)
+  # MCP_OAUTH_ISSUER: https://login.microsoftonline.com/<tenant-id>/v2.0
+  # MCP_OAUTH_AUDIENCE: api://<app-id>
   # Outgoing proxy / internal CA (optional, see docs/llm-providers.md)
   # NODE_USE_ENV_PROXY: "1"
   # HTTPS_PROXY: http://proxy.firma.local:3128

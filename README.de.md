@@ -10,7 +10,7 @@ Die Oberfläche ist auf **Deutsch und Englisch** verfügbar (Umschalter DE | EN 
 
 > English documentation: [README.md](README.md) · [docs/](docs/)
 
-Interne Web-Anwendung für KI-Chat mit Benutzerverwaltung (lokal, LDAP/AD, OIDC/Azure AD), zentral verwalteten KI-Anbietern (Anthropic Claude, AWS Bedrock, GitHub Models/Enterprise, OpenAI-kompatibel), MCP-Servern pro Benutzer, [codebasierten Plugins](docs/plugins.md) mit Admin-Schalter, Datei-Uploads, online verfassten Wissensartikeln mit Admin-Freigabe, optionaler Selbstregistrierung und Audit-Log.
+Interne Web-Anwendung für KI-Chat mit Benutzerverwaltung (lokal, LDAP/AD, OIDC/SSO mit Admin- und Zugriffszuweisungen), zentral verwalteten KI-Anbietern (Anthropic Claude, AWS Bedrock, GitHub Models/Enterprise, OpenAI-kompatibel), MCP-Servern pro Benutzer, [codebasierten Plugins](docs/plugins.md) mit Admin-Schalter, Datei-Uploads, einer Wissensdatenbank aus Uploads, Dateifreigaben, Confluence, SharePoint und Webseiten (automatisch, manuell oder per Webhook aktualisiert), online verfassten Wissensartikeln mit Admin-Freigabe, Kommentarspalte für Admin-Notizen, optionaler Selbstregistrierung, maskierten Geheimnissen und Audit-Log.
 
 ```
 server/   Node.js 22 · Express 5 · Drizzle/PostgreSQL · Vercel AI SDK · MCP-SDK
@@ -26,16 +26,20 @@ deploy/   Kubernetes-Manifeste (kustomize)
 
 <table>
   <tr>
-    <td width="50%" valign="top"><b>MCP-Server und Zugriffstokens</b> – eigene MCP-Server je Benutzer; die Wissensdatenbank als MCP-Server für andere Tools<br><img src="docs/images/mcp.de.png" alt="MCP-Server und Zugriffstokens"></td>
-    <td width="50%" valign="top"><b>Anbieter und Modelle</b> – KI-Anbieter und der Modellkatalog für die Benutzer<br><img src="docs/images/admin-providers.de.png" alt="Administration: Anbieter und Modelle"></td>
+    <td width="50%" valign="top"><b>MCP-Server und Zugriffstokens</b> – eigene MCP-Server je Benutzer (Header oder OAuth 2.0 Client Credentials); die Wissensdatenbank als MCP-Server für andere Tools<br><img src="docs/images/mcp.de.png" alt="MCP-Server und Zugriffstokens"></td>
+    <td width="50%" valign="top"><b>Anbieter und Modelle</b> – KI-Anbieter und der Modellkatalog für die Benutzer, mit Admin-Notizen<br><img src="docs/images/admin-providers.de.png" alt="Administration: Anbieter und Modelle"></td>
   </tr>
   <tr>
-    <td valign="top"><b>Wissensdatenbank</b> – Embedding-Modell, Sammlungen mit Zugriffsgruppen, Quellen mit Sync-Status<br><img src="docs/images/admin-knowledge.de.png" alt="Administration: Wissensdatenbank"></td>
-    <td valign="top"><b>Benutzer</b> – lokale, LDAP- und SSO-Benutzer mit Rollen und Gruppen<br><img src="docs/images/admin-users.de.png" alt="Administration: Benutzer"></td>
+    <td valign="top"><b>Wissensdatenbank</b> – Embedding-Modell, Sammlungen mit Zugriffsgruppen, Quellen mit Aktualisierungsmodus, Sync-Status und Notizen<br><img src="docs/images/admin-knowledge.de.png" alt="Administration: Wissensdatenbank"></td>
+    <td valign="top"><b>Benutzer</b> – lokale, LDAP- und SSO-Benutzer mit Rollen, Gruppen und Notizen<br><img src="docs/images/admin-users.de.png" alt="Administration: Benutzer"></td>
   </tr>
   <tr>
     <td valign="top"><b>Audit-Log</b> – Filter und CSV-Export<br><img src="docs/images/admin-audit.de.png" alt="Administration: Audit-Log"></td>
-    <td valign="top"><b>Anmeldung</b> – lokal, LDAP und SSO; <a href="#branding">mit eigenem Logo und eigenen Farben</a><br><img src="docs/images/login.de.png" alt="Anmeldeseite"><br><img src="docs/images/branding-login.png" alt="Anmeldeseite mit Firmen-Branding"></td>
+    <td valign="top"><b>Anmeldung</b> – lokal, LDAP und SSO; <a href="#branding">mit eigenem Logo und eigenen Farben</a><br><img src="docs/images/login.de.png" alt="Anmeldeseite mit Firmenkonto (LDAP), lokalem Konto und Single Sign-On"><br><img src="docs/images/branding-login.png" alt="Anmeldeseite mit Firmen-Branding"></td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Single Sign-On</b> – SSO-Admins und erlaubte Benutzer nach Gruppe, E-Mail oder Objekt-ID<br><img src="docs/images/admin-sso.de.png" alt="Administration: Single-Sign-On-Zuweisungen"></td>
+    <td valign="top"><b>Einstellungen einer Quelle</b> – Quelle aktiv, Aktualisierungsmodus (automatisch, manuell oder Webhook), vollständiges Ersetzen des gespeicherten Inhalts, Zugangsdaten, Webhook-URL<br><img src="docs/images/admin-knowledge-update.de.png" alt="Administration: Einstellungen einer Wissensquelle"></td>
   </tr>
 </table>
 
@@ -54,7 +58,7 @@ Dann http://localhost:8080 öffnen, als `admin` anmelden und unter **Administrat
 
 Details je Anbieter: [KI-Anbieter anbinden](#ki-anbieter-anbinden).
 
-Benutzer tragen ihre MCP-Server unter **MCP-Server** selbst ein (URL, optional `Authorization`-Header) und testen die Verbindung.
+Benutzer tragen ihre MCP-Server unter **MCP-Server** selbst ein (URL, optional `Authorization`-Header oder OAuth 2.0 Client Credentials mit Token-URL, Client-ID/-Secret und Scope – das Portal holt und cached die Tokens selbst) und testen die Verbindung.
 
 ## Entwicklung
 
@@ -71,16 +75,25 @@ cd server && npm test    # API (Anmeldung, Administration, Chat mit Tool-Aufrufe
 cd web && npm test       # Anmelde- und MCP-Seite, Chat-Stream, Modellauswahl, Brand-Komponente, UI-Übersetzungen
 ```
 
-Integrationstests starten das Portal gegen echtes PostgreSQL/pgvector, [pg-mcp-server](https://github.com/Tommi2Day/pg-mcp-server) und [oracle-mcp-server](https://github.com/Tommi2Day/oracle-mcp-server) (mit Oracle Free) in Docker; das Modell ist ein geskripteter Mock – geprüft wird die ganze Kette Portal → Modell → MCP-Tool → Datenbank → Antwort, dazu Wissensdatenbank und Anbieter-Anfragen. Details: [server/test/integration](server/test/integration/README.md).
+Integrationstests starten das Portal gegen echtes PostgreSQL/pgvector, [pg-mcp-server](https://github.com/Tommi2Day/pg-mcp-server) (mit und ohne OAuth, gegen ein echtes Keycloak) und [oracle-mcp-server](https://github.com/Tommi2Day/oracle-mcp-server) (mit Oracle Free) in Docker; das Modell ist ein geskripteter Mock – geprüft wird die ganze Kette Portal → Modell → MCP-Tool → Datenbank → Antwort, dazu Wissensdatenbank und Anbieter-Anfragen. Details: [server/test/integration](server/test/integration/README.md).
 
 ```bash
 docker compose -f docker-compose.test.yml up -d --wait
 cd server && npm run test:integration      # IT_SKIP_ORACLE=1 ohne die Oracle-Container
 ```
 
-GitHub Actions (`.github/workflows/ci.yml`) führt bei jedem Push und Pull Request Unit-Tests mit Coverage (Upload zu Codecov), Audit, Übersetzungsprüfung und Build für `server/` und `web/`, die Integrationstests mit dem Docker-Stack und einen Docker-Image-Build aus.
+Linting (ESLint mit typescript-eslint, in `web/` zusätzlich die React-Hooks-Regeln; Warnungen lassen den Lauf fehlschlagen): `npm run lint` in `server/` und `web/`, `npm run lint:fix` wendet die automatischen Korrekturen an. Die CI führt die Linter vor den Tests aus.
 
-Releases (`.github/workflows/release.yml`) veröffentlichen nach Unit- und Integrationstests das Image [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal) auf Docker Hub: Tag `X.Y.Z` pushen (→ `:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:sha-<kurz>`) oder den Workflow manuell mit einer Version starten – er setzt sie vorher in beiden `package.json` und in `deploy/k8s/kustomization.yaml` auf `main`.
+GitHub Actions (`.github/workflows/`):
+
+| Workflow | Aufgabe |
+| --- | --- |
+| `ci.yml` | Bei jedem Push und Pull Request: **Lint & Test** für `server/` und `web/` (Audit, ESLint, Übersetzungsprüfung, Tests mit Coverage-Upload zu Codecov, Build), danach die **Integrationstests** gegen den Docker-Stack (PostgreSQL/pgvector, Keycloak, pg-mcp-server mit und ohne OAuth, Oracle + oracle-mcp-server) und ein **Docker-Image-Build** mit Start-Test |
+| `release.yml` | Veröffentlicht das Image [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal) auf Docker Hub und legt das GitHub-Release an, nach Lint, Unit- und Integrationstests. Tag `X.Y.Z` pushen (→ `:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:sha-<kurz>`) oder den Workflow manuell mit einer Version starten: Er prüft die Version, setzt sie in beiden `package.json` und in `deploy/k8s/kustomization.yaml`, macht aus `## [Unreleased]` des CHANGELOG den Abschnitt `## [X.Y.Z]`, committet auf `main` und legt den Tag an. Die Release-Notes sind dieser CHANGELOG-Abschnitt plus die erzeugte Liste der Pull Requests |
+| `dependabot-automerge.yml` | Pull Requests von Dependabot (`.github/dependabot.yml`, monatlich: npm für `server/` und `web/`, Docker, Actions) werden aktualisiert und auf Auto-Merge gesetzt, sobald die Pflicht-Checks grün sind; Major-Updates bleiben der manuellen Prüfung vorbehalten |
+| `dockerhub-description.yml` | Überträgt `DOCKERHUB.md` (das kompakte README) und die Kurzbeschreibung nach Docker Hub, wenn sie sich auf `main` ändern |
+
+Repository-Secrets: `DOCKERHUB_USERNAME` und `DOCKERHUB_TOKEN` (Token mit Read-, Write-, Delete-Rechten), `CODECOV_TOKEN`. Auto-Merge braucht „Allow auto-merge“ und einen Branch-Schutz mit den CI-Checks als Pflicht.
 
 Schemaänderungen: `server/src/db/schema.ts` anpassen, dann `npm run db:generate` (erzeugt SQL unter `server/drizzle/`).
 
@@ -164,7 +177,7 @@ Ausführlich mit Fehlerbildern: [docs/llm-providers.md](docs/llm-providers.md) (
 | --- | --- | --- |
 | Lokal | `AUTH_LOCAL_ENABLED`, `REGISTRATION_ENABLED`, `BOOTSTRAP_ADMIN_*` | Admin wird nur angelegt, wenn noch kein Benutzer existiert. Selbstregistrierung (optional) legt inaktive Konten an, die ein Admin freigibt |
 | LDAP / AD | `LDAP_*` | Service-Bind → Suche → Bind als Benutzer. `LDAP_ADMIN_GROUP_DN` vergibt Admin-Rolle, `LDAP_USER_GROUP_DN` beschränkt Zugang. Für AD: `(sAMAccountName={{username}})` |
-| OIDC / Azure AD | `OIDC_*` | Authorization Code + PKCE. Redirect-URI: `<PUBLIC_URL>/api/auth/oidc/callback`. App-Rollen `AiPortal.User` / `AiPortal.Admin` im Claim `roles` |
+| OIDC / Azure AD | `OIDC_*` | Authorization Code + PKCE. Redirect-URI: `<PUBLIC_URL>/api/auth/oidc/callback`. App-Rollen `AiPortal.User` / `AiPortal.Admin` im Claim `roles`. Zusätzlich Admins und erlaubte Benutzer nach Gruppe, E-Mail, `*@domain` oder Objekt-ID: `OIDC_ADMIN_GROUPS`, `OIDC_ADMIN_USERS`, `OIDC_ALLOWED_GROUPS`, `OIDC_ALLOWED_USERS` bzw. unter **Administration → Single Sign-On** (Allow-Liste: wer nicht passt, wird abgewiesen; Admins immer zugelassen) |
 
 Externe Benutzer werden bei der ersten Anmeldung angelegt. Ist keine Admin-Gruppe/-Rolle konfiguriert, verwalten Admins die Rolle im Portal.
 
@@ -182,19 +195,54 @@ Interne Dokumente werden in **Sammlungen** indiziert und im Chat über das Tool 
 | --- | --- | --- |
 | Upload | Dateien direkt in die Sammlung laden | – |
 | Dateifreigabe | Pfad unter `KNOWLEDGE_FS_ROOT` (SMB/NFS in den Pod gemountet, siehe `deploy/k8s/share-smb.yaml`) | Mount-Rechte |
-| Confluence Cloud | `https://firma.atlassian.net/wiki`, Space-Keys | E-Mail + API-Token (REST v2) |
-| Confluence Server/DC | Basis-URL, Space-Keys | Personal Access Token (REST v1) |
+| Confluence Cloud | `https://firma.atlassian.net/wiki`, Space-Keys und/oder Seiten-IDs | E-Mail + API-Token (REST v2) |
+| Confluence Server/DC | Basis-URL, Space-Keys und/oder Seiten-IDs | Personal Access Token (REST v1) |
+| Webseiten (HTTP) | Start-URLs; folgt Links zu Unterseiten (gleicher Host, unterhalb des Start-Pfads) | optional Request-Header (z. B. `Authorization: Bearer …`), verschlüsselt gespeichert |
 | SharePoint / OneDrive | Tenant, App-ID, Site-URL oder UPN, optional Bibliothek/Ordner | Entra-App mit `Sites.Selected` (empfohlen) oder `Sites.Read.All`/`Files.Read.All`, Client-Secret |
+
+**Unterseiten:** Ein Confluence-Space-Import nimmt alle Seiten des Spaces mit. Mit *Seiten-IDs* (`rootPageIds`) lassen sich stattdessen Seitenbäume importieren (Seite plus Nachfolger); *Unterseiten importieren* (`includeSubpages`, Standard an) und *Max. Tiefe* (`maxDepth`, 1 = direkte Kinder, 0 = unbegrenzt) steuern das. Die Webseiten-Quelle folgt Links (`includeSubpages`, `maxDepth` Standard 3, `maxPages` Standard 200) nur auf demselben Host unterhalb des Start-Pfads, beachtet `<meta name="robots">` und lässt Weiterleitungen nur innerhalb dieses Bereichs zu.
 
 Formate: PDF, DOCX, PPTX, XLSX, HTML, Markdown, Text, Code, CSV/JSON/YAML/XML. Gescannte PDFs ohne Textebene werden übersprungen (OCR fehlt).
 
-Technik: pgvector (HNSW-Index je Dimension) + PostgreSQL-Volltext, kombiniert per Reciprocal Rank Fusion. Synchronisierung inkrementell (Version/eTag/mtime), gelöschte Dokumente werden entfernt, Wechsel des Embedding-Modells stößt automatisch eine Neuindizierung an. Mehrere Pods synchronisieren nie dieselbe Quelle gleichzeitig (Advisory Locks).
+### Einstellungen einer Quelle
+
+Im Panel **Einstellungen** (Schaltfläche in der Zeile der Quelle) lassen sich ändern: **Quelle aktiv** (ausgeschaltet stoppt es zeitgesteuerte und externe Aktualisierungen, der Webhook antwortet 409, die Quelle wird als *deaktiviert* markiert; *Synchronisieren* geht weiterhin und die Dokumente bleiben durchsuchbar), der Aktualisierungsmodus samt vollständigem Ersetzen (unten) und die **Zugangsdaten**. Hinterlegte Zugangsdaten werden nie angezeigt, nur ob welche vorhanden sind. Das Formular **ersetzt den ganzen Satz**: Confluence Cloud E-Mail + API-Token, Confluence Server/DC Personal Access Token, SharePoint Client-Secret, Webseiten Header-Name und -Wert (*Zugangsdaten entfernen* löscht die Header; Dateifreigaben haben keine). *Zugangsdaten ersetzen* speichert für die nächste Aktualisierung, *Ersetzen & synchronisieren* speichert und startet sofort eine Aktualisierung. Die Änderung wird auditiert, nie die Werte.
+
+### Aktualisierung einer Quelle
+
+Je Quelle wählt der Admin, wie der Inhalt aktuell bleibt (beim Anlegen oder später im Panel **Einstellungen** der Quelle):
+
+| Modus | Wann aktualisiert wird |
+| --- | --- |
+| **Automatisch** | alle 15 Minuten, stündlich oder täglich |
+| **Manuell** | nur per Schaltfläche *Synchronisieren* |
+| **Extern ausgelöst** | wenn ein anderes System den Webhook der Quelle aufruft: CI-Job nach dem Dokumentations-Build, Confluence-/Git-Webhook, Cron auf einem anderen Host |
+
+*Synchronisieren* funktioniert in jedem Modus. Standardmäßig ist eine Aktualisierung **inkrementell**: neue und geänderte Dokumente werden übernommen, unveränderte übersprungen, nicht mehr vorhandene entfernt. Mit **Gespeicherten Inhalt bei jeder Aktualisierung vollständig ersetzen** (`replaceOnSync`) – oder einmalig mit *Vollständig ersetzen* im Panel *Einstellungen* bzw. `{"replace": true}` im Webhook-Aufruf – liest die Aktualisierung **alle** Dokumente neu ein und überschreibt den gespeicherten Inhalt, auch wenn die Quelle keine Änderung meldet. Unterseiten sind eingeschlossen, soweit für die Quelle eingestellt (Confluence-Seitenbäume, verlinkte Seiten einer Webseiten-Quelle).
+
+- Ersetzt und entfernt wird erst, nachdem die Quelle vollständig gelesen wurde: Eine nicht lesbare Quelle (falsche Zugangsdaten, Netzfehler, Startseite weg) behält ihren bisherigen Inhalt und zeigt den Fehler.
+- Ein vollständiges Ersetzen, das in einer Quelle mit Dokumenten *gar nichts* findet, gilt als Fehler und behält den Inhalt (Schutz vor einer vorübergehend leeren Freigabe oder einem falschen Pfad). Eine inkrementelle Aktualisierung folgt der Quelle auch bis „leer“.
+- Seiten, die den Bereich der Quelle verlassen haben (Unterseiten abgeschaltet, Tiefe verringert, verschoben oder gelöscht), entfernt die nächste Aktualisierung in beiden Modi.
+
+**Webhook:** Das Portal erzeugt ein Token für genau diese Quelle, **einmalig** angezeigt (bis zum Klick auf *Anzeigen* maskiert), gespeichert wird nur der Hash. Das andere System ruft auf:
+
+```bash
+curl -X POST -H "Authorization: Bearer kt_…" https://ai.firma.local/api/hooks/knowledge/<Quellen-ID>/sync
+# vollständiges Ersetzen nur für diesen Aufruf
+curl -X POST -H "Authorization: Bearer kt_…" -H "Content-Type: application/json" -d '{"replace": true}' https://ai.firma.local/api/hooks/knowledge/<Quellen-ID>/sync
+```
+
+Antwort `202`, die Aktualisierung läuft im Hintergrund. `401` bei fehlendem, falschem oder widerrufenem Token (gleiche Antwort für unbekannte Quellen), `409` bei deaktivierter oder gerade laufender Quelle, `400` bei Uploads. Das Token kann nur die Aktualisierung dieser Quelle starten; *Token neu erzeugen* ersetzt es (das alte gilt sofort nicht mehr), *Token widerrufen* beendet den externen Auslöser. Kein Session-Cookie und kein CSRF-Header nötig (`X-Trigger-Token: kt_…` geht ebenfalls), 60 Aufrufe pro Minute und IP, jeder Aufruf wird auditiert. Die Aufruf-URL (aus `PUBLIC_URL`) zeigt das Panel *Einstellungen* der Quelle.
+
+Technik: pgvector (HNSW-Index je Dimension) + PostgreSQL-Volltext, kombiniert per Reciprocal Rank Fusion. Aktualisierung je Quelle automatisch (Intervall), manuell oder extern ausgelöst (Webhook `POST /api/hooks/knowledge/<Quelle>/sync` mit Quellen-Token); standardmäßig inkrementell (Version/eTag/mtime), optional als vollständiges Ersetzen des gespeicherten Inhalts (Einstellung `replaceOnSync`, Schaltfläche *Vollständig ersetzen* oder `{"replace": true}` im Webhook-Aufruf; schließt Unterseiten gemäß Quellen-Einstellung ein), gelöschte Dokumente werden entfernt, eine nicht lesbare Quelle behält ihren bisherigen Inhalt, Wechsel des Embedding-Modells stößt automatisch eine Neuindizierung an. Mehrere Pods synchronisieren nie dieselbe Quelle gleichzeitig (Advisory Locks).
 
 **Voraussetzung:** PostgreSQL mit pgvector (`pgvector/pgvector:pg16` im Compose-Setup). Die Migration führt `CREATE EXTENSION vector` aus – fehlen dem DB-Benutzer die Rechte, die Erweiterung einmalig als Admin anlegen.
 
 ### Wissensdatenbank als MCP-Server
 
 Unter `<PUBLIC_URL>/mcp` (Streamable HTTP, zustandslos) steht die Wissensdatenbank externen MCP-Clients zur Verfügung – mit den Rechten des Benutzers, dem das Token gehört. Tokens erstellt jede Person selbst unter **MCP-Server → Zugriffstokens** (30/90/365 Tage, widerrufbar, gespeichert nur als SHA-256).
+
+Alternativ nimmt `/mcp` OAuth-2.0-Zugriffstokens des Identity Providers an (`MCP_OAUTH_ISSUER`, `MCP_OAUTH_AUDIENCE`; Signatur, Issuer, Audience und Laufzeit werden lokal per JWKS geprüft). Die Person muss sich einmal per SSO am Portal angemeldet haben; unbekannte oder deaktivierte Benutzer erhalten 401. Clients mit MCP-Autorisierung (Claude Code, VS Code, …) finden den Issuer über `/.well-known/oauth-protected-resource` und melden sich selbst an. Details: [docs/configuration.md](docs/configuration.md#oauth-20-on-mcp).
 
 Tools: `sammlungen_auflisten`, `wissensdatenbank_suchen` (query, sammlung?, anzahl?), `dokument_lesen` (dokument_id).
 
@@ -217,11 +265,17 @@ Claude Desktop / andere stdio-Clients: `npx -y mcp-remote https://ai.firma.local
 
 Jeder Aufruf wird auditiert (`knowledge.search`, `knowledge.document.read` mit `via: mcp`, fehlgeschlagene Anmeldungen als `token.auth_failed`). Limit: 120 Anfragen pro Minute und IP.
 
+## Notizen und Geheimnisse in der Administration
+
+Jede Admin-Tabelle (Benutzer, KI-Anbieter, Modelle, Sammlungen, Quellen, SSO-Zuweisungen) hat eine Spalte **Kommentar** für kleine Notizen (bis 300 Zeichen, bei SSO-Zuweisungen 200): Ansprechpartner, Ticketnummer, Ablaufdatum von Vertrag oder Token. Anklicken, tippen, Enter oder Feld verlassen speichert, Escape bricht ab, ein leerer Text entfernt die Notiz. Notizen sehen nur Admins; sie ändern nichts an Zugriff oder Verhalten und werden mit der Änderung auditiert. Keine Zugangsdaten in Notizen ablegen.
+
+Geheimnisse (API-Schlüssel, Header, Client-Secrets, Tokens) sind in der API write-only und werden in Logs, Audit-Einträgen, gespeicherten Fehlertexten und der Oberfläche maskiert (URLs mit geheimen Parametern, Bearer-Zugangsdaten, JWTs, Passwörter in URLs). Neue Zugriffstokens bleiben bis zum Klick auf *Anzeigen* verborgen, Passwörter und Schlüssel werden in maskierten Feldern eingegeben. Details und Härtungshinweise: [docs/security.md](docs/security.md).
+
 ## Audit-Log
 
 Jede sicherheitsrelevante Aktion wird doppelt geschrieben (Einträge immer auf Englisch, unabhängig von der Sprache der Oberfläche): in die Tabelle `audit_log` (Ansicht, Filter und CSV-Export unter **Administration → Audit-Log**) und als JSON-Zeile mit `"audit":true` auf stdout für Loki/ELK/Splunk.
 
-Erfasst: An-/Abmeldung (auch fehlgeschlagen), Benutzer-, Anbieter-, Modell- und MCP-Änderungen, jeder Prompt (Modell, Länge, Anhänge; Volltext nur mit `AUDIT_LOG_PROMPTS=true`), jede Antwort (Tokens, Dauer, Tool-Aufrufe), jeder MCP-Tool-Aufruf, jede Wissenssuche (Sammlungen, Trefferzahl, gefundene Dokumente), jede Synchronisierung, Datei-Upload/-Download, Audit-Export.
+Erfasst: An-/Abmeldung (auch fehlgeschlagen), Benutzer-, Anbieter-, Modell- und MCP-Änderungen, jeder Prompt (Modell, Länge, Anhänge; Volltext nur mit `AUDIT_LOG_PROMPTS=true`), jede Antwort (Tokens, Dauer, Tool-Aufrufe), jeder MCP-Tool-Aufruf, jede Wissenssuche (Sammlungen, Trefferzahl, gefundene Dokumente), jede Synchronisierung (mit Auslöser: Zeitplan, manuell, extern), Erstellen/Widerrufen von Webhook-Tokens und fehlgeschlagene Webhook-Aufrufe, SSO-Zuweisungen, Datei-Upload/-Download, Audit-Export.
 
 ## API (Auszug)
 

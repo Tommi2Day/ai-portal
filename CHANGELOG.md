@@ -5,6 +5,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Source settings panel** (*Settings* on a knowledge source): a **Source active** switch (stops scheduled and external updates, manual sync still works, documents stay searchable; disabled sources are marked in the table) and a **credentials form** per source type that replaces the stored set completely (Confluence Cloud e-mail + API token, Server/DC token, SharePoint client secret, web headers; nothing is ever shown, *Replace & sync* tests new credentials at once). The API validates the credentials shape per source type; an empty set removes a web source's headers.
+- **Knowledge sources**
+  - New source type **Web pages (HTTP)**: crawls start URLs and follows links to subpages on the same host and path (`includeSubpages`, `maxDepth`, `maxPages`, `pathPrefix`, `exclude`), honours `<meta name="robots">`, optional request header stored encrypted. Needs migration `0010`.
+  - Confluence **page trees** (`rootPageIds`) with configurable subpages (`includeSubpages`, `maxDepth`); without subpages a space imports only its top-level pages.
+  - **Update mode per source**: automatic (interval), manual, or triggered externally by a webhook (`POST /api/hooks/knowledge/<id>/sync`, per-source token shown once and stored only as a hash, `X-Trigger-Token` or Bearer, rate-limited, audited; the admin UI shows the public webhook URL). Migration `0011`.
+  - **Full replace** (`replaceOnSync`, *Replace completely* in the source's *Settings* panel, `{"replace": true}` per call): every document is re-imported in place and overwrites the stored content, subpages as configured. Content is replaced and vanished documents are removed only after the source was read completely; an unreadable source, or a full replace that finds nothing, keeps the existing content.
+- **Single sign-on and OAuth**
+  - SSO admins and allowed users by directory group, e-mail, `*@domain` or object ID (`OIDC_ADMIN_GROUPS`, `OIDC_ADMIN_USERS`, `OIDC_ALLOWED_GROUPS`, `OIDC_ALLOWED_USERS`, `OIDC_REQUIRE_VERIFIED_EMAIL`), deny by default once an allow list exists, plus the admin tab *Single Sign-On* to manage assignments at runtime.
+  - OAuth 2.0 / OIDC access tokens on the knowledge `/mcp` endpoint (`MCP_OAUTH_*`): local JWT validation via JWKS, protected-resource metadata at `/.well-known/oauth-protected-resource`, access only for known OIDC users.
+  - Per-user MCP servers can authenticate with OAuth 2.0 client credentials; the portal fetches and caches the tokens, the secret is stored encrypted. Migration `0009`.
+- **Admin UI**: a *Comment* column (inline edit, up to 300 characters, 200 for SSO assignments) for users, AI providers, models, knowledge collections and sources, and SSO assignments; stored in a new `comment` column (migration `0012`), audited, admin-only.
+- **Quality and delivery**
+  - ESLint with typescript-eslint in `server/` and `web/` (plus the `react-hooks` rules in the UI), `npm run lint` / `npm run lint:fix`, warnings are fatal.
+  - GitHub workflows reworked as in pg-mcp-server: CI *Lint & Test* → *Integration* / *Docker image build*; the release workflow lints, validates the version, rolls the CHANGELOG on a manual start, creates the tag and the GitHub release (notes from the CHANGELOG); Dependabot configuration with an automerge workflow; `DOCKERHUB.md` published as the Docker Hub description.
+  - Integration tests with real servers: Keycloak (realm with clients and users), pg-mcp-server with and without OAuth, a full SSO sign-in round trip, the portal's own `/mcp` with Keycloak tokens, and the web source against a real web server.
+
+### Changed
+- CI job names changed (*Lint & Test (server|web)*, *Integration*, *Docker image build*); update required status checks in branch protection.
+- Action buttons in the admin tables wrap instead of overflowing the card; the knowledge source table shows the update mode and the note, *Replace completely* moved into the source's *Settings* panel.
+- `POST /api/admin/knowledge/sources/:id/sync` accepts `{replace}`; sync runs record their trigger (`schedule`, `manual`, `external`) and whether they replaced.
+- Administration and installation guides completed: first steps, the Single Sign-On tab, collection and source management, sync problems with their messages, credential rotation and admin recovery; settings overview, published image and tags, first start, reverse-proxy requirements, data growth and retention, restore and more troubleshooting.
+- The sign-in button label comes from `OIDC_DISPLAY_NAME` (documented with neutral examples such as `SSO`).
+
+### Security
+- Secrets are masked in logs, audit entries, stored error texts and the UI: central redaction (`server/src/redact.ts`) for every log record and audit details (also when entries are read or exported), URLs with secret parameters are masked, errors are reduced to type, message and status. Password and API-key prompts are masked inputs instead of `window.prompt`; new access tokens and webhook tokens stay hidden until revealed.
+- OAuth hardening after a review: asymmetric JWT algorithms only on `/mcp`, groups from OAuth tokens are authoritative (no stale groups from the last sign-in), client-credentials tokens are cached under a hash key for at most 24 hours, token responses are limited to 64 KB, startup warnings for an `http` issuer, a missing `MCP_OAUTH_AUDIENCE` and several allowed issuers. New section "OAuth and SSO: what to know" in `docs/security.md`.
+- The webhook token belongs to one source, is compared in constant time and answers every authentication failure with the same 401; the Docker Hub description action is pinned to a commit.
+
 ## [0.2.2] - 2026-11-06
 
 Docker image: `tommi2day/ai-portal:0.2.2`.

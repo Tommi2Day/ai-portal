@@ -59,8 +59,9 @@ responds with `Content-Type: application/x-ndjson` — one JSON object per line:
 
 | Method | Path | Description |
 | --- | --- | --- |
-| GET / POST | `/api/mcp-servers` | List / add `{name, url, transport: "streamable-http" \| "sse", headers?, enabled?}` |
-| PATCH / DELETE | `/api/mcp-servers/:id` | Change / delete; `headers` is write-only |
+| GET / PUT | `/api/admin/sso/assignments` | SSO assignments (admin): `{enabled, env, assignments: [{type: "group" \| "user", value, admin}]}`; PUT replaces the stored list |
+| GET / POST | `/api/mcp-servers` | List / add `{name, url, transport: "streamable-http" \| "sse", headers?, oauth?, enabled?}`; `oauth` = `{tokenUrl, clientId, clientSecret, scope?}`: the portal fetches OAuth 2.0 client-credentials tokens itself and sends them as `Authorization: Bearer` (write-only, stored encrypted) |
+| PATCH / DELETE | `/api/mcp-servers/:id` | Change / delete; `headers` and `oauth.clientSecret` are write-only (omit the secret to keep it, `oauth: null` removes OAuth) |
 | POST | `/api/mcp-servers/:id/test` | Connect and list tools |
 | GET / POST | `/api/tokens` | List / create `{name, expiresInDays: 1–365}` → `{id, expiresAt, token}` (token shown once) |
 | DELETE | `/api/tokens/:id` | Revoke |
@@ -79,13 +80,16 @@ responds with `Content-Type: application/x-ndjson` — one JSON object per line:
 
 | Area | Endpoints |
 | --- | --- |
-| Users | `GET/POST /api/admin/users`, `PATCH/DELETE /api/admin/users/:id` (`role`, `active`, `displayName`, `password`, `groups`); the list includes `pendingApproval` for self-registered accounts, and `active: true` approves them |
-| Providers | `GET/POST /api/admin/providers`, `PATCH/DELETE /api/admin/providers/:id` (`secret` is write-only), `GET /api/admin/model-presets` |
-| Models | `GET/POST /api/admin/models`, `PATCH/DELETE /api/admin/models/:id` |
+| Users | `GET/POST /api/admin/users`, `PATCH/DELETE /api/admin/users/:id` (`role`, `active`, `displayName`, `password`, `groups`, `comment`); the list includes `pendingApproval` for self-registered accounts, and `active: true` approves them |
+| Providers | `GET/POST /api/admin/providers`, `PATCH/DELETE /api/admin/providers/:id` (`secret` is write-only; `comment`), `GET /api/admin/model-presets` |
+| Models | `GET/POST /api/admin/models`, `PATCH/DELETE /api/admin/models/:id` (`comment`) |
 | Audit | `GET /api/admin/audit?user=&action=&from=&to=&limit=&offset=&format=json\|csv` |
 | Embedding | `GET/PUT /api/admin/knowledge/embedding` `{providerId, modelId, dimensions?}` — PUT probes the model and starts re-indexing when it changed |
 | Collections | `GET/POST /api/admin/knowledge/collections`, `PATCH/DELETE /api/admin/knowledge/collections/:id`, `POST /api/admin/knowledge/collections/:id/upload` (multipart `files`) |
-| Sources | `POST /api/admin/knowledge/sources`, `PATCH/DELETE /api/admin/knowledge/sources/:id`, `POST …/:id/sync` (202, runs in background), `GET …/:id/documents` (with `author`, `modifiedAt`) |
+| Sources | `POST /api/admin/knowledge/sources`, `PATCH/DELETE /api/admin/knowledge/sources/:id`, `POST …/:id/sync` (202, runs in background; body `{replace?: boolean}` overrides the source's `replaceOnSync` for this run), `POST / DELETE …/:id/trigger-token` (creates the webhook token, returned once as `{token, url}` / revokes it), `GET …/:id/documents` (with `author`, `modifiedAt`) |
+| Source credentials and switch | `PATCH /api/admin/knowledge/sources/:id` with `secret` replaces the stored credentials completely (write-only, never returned; the list only has `hasSecret`): Confluence Cloud `{email, apiToken}`, Server/DC `{token}`, SharePoint `{clientSecret}`, web pages request headers (`{}` removes them), 400 for a wrong shape and for file shares; `enabled: false` stops scheduled and external updates (manual sync still works), the documents stay searchable |
+| Source update settings | `syncIntervalMinutes` (automatic, 0 = no schedule), `replaceOnSync` (every update re-imports all documents in place; default false) on create / update; the source list shows `hasTrigger`, `triggerTokenCreatedAt` (never the token) and `hookUrl` (the webhook address built from `PUBLIC_URL`; null for uploads) |
+| External trigger | `POST /api/hooks/knowledge/:id/sync` with `Authorization: Bearer kt_…` or `X-Trigger-Token`, optional body `{"replace": true}`; no session, no CSRF header. 202 `{started, replace}`, 401 invalid token (also unknown source), 409 disabled / already running, 400 upload source or bad body; 60 requests per minute and IP |
 | Documents | `DELETE /api/admin/knowledge/documents/:id` |
 | Article review | `GET /api/admin/knowledge/articles` (pending, includes author and body); `POST /api/admin/knowledge/articles/:id/approve` or `…/reject` |
 | Plugins | `GET /api/admin/plugins` lists deployed plugins (including disabled); `PATCH /api/admin/plugins/:id` with `{enabled: boolean}` toggles one |
@@ -97,9 +101,16 @@ Source `config` by type:
 { "path": "it-handbook", "recursive": true, "urlPrefix": "file://fileserver/it/", "exclude": ["Archive"] }
 // confluence (secret: cloud {email, apiToken} | server {token})
 { "baseUrl": "https://example.atlassian.net/wiki", "deployment": "cloud", "spaceKeys": ["IT", "OPS"] }
+// confluence page tree: rootPageIds (digits), includeSubpages (default true), maxDepth (1 = children, 0 = unlimited);
+// spaceKeys may be empty when rootPageIds is set; without subpages spaces import only their top-level pages
+{ "baseUrl": "https://wiki.example.com", "deployment": "server", "spaceKeys": [], "rootPageIds": ["123456"], "includeSubpages": true, "maxDepth": 0 }
+// http (secret: request headers, e.g. {"Authorization": "Bearer …"}); links are followed within the host and path of the start URLs
+{ "startUrls": ["https://wiki.example.com/it/"], "includeSubpages": true, "maxDepth": 3, "maxPages": 200, "pathPrefix": "/it/", "exclude": ["/login"] }
 // sharepoint (secret: {clientSecret})
 { "tenantId": "…", "clientId": "…", "siteUrl": "https://example.sharepoint.com/sites/IT", "driveName": "Documents", "folderPath": "Manuals" }
 ```
+
+**Admin notes:** users, providers, models, knowledge collections and sources (create and update) and SSO assignments accept an optional `comment`: a string, trimmed, at most 300 characters (200 for SSO assignments); an empty string clears it (`null`), omitting it leaves it unchanged. Lists for admins return it; user-facing endpoints (`/api/models`, `/api/knowledge/collections`, `/api/auth/me`) never do.
 
 ## Plugins
 
@@ -111,7 +122,8 @@ Source `config` by type:
 | --- | --- |
 | URL | `<PUBLIC_URL>/mcp` |
 | Transport | Streamable HTTP, stateless (`POST` only; `GET` / `DELETE` return 405) |
-| Authentication | `Authorization: Bearer ap_…` (personal access token). Session cookies are not accepted. |
+| Discovery | `GET /.well-known/oauth-protected-resource` (RFC 9728, with `MCP_OAUTH_ISSUER`): issuer and scopes; unauthenticated requests get `401` with a `resource_metadata` link |
+| Authentication | `Authorization: Bearer ap_…` (personal access token) or, with `MCP_OAUTH_ISSUER`, an OAuth 2.0 access token ([configuration](configuration.md#oauth-20-on-mcp)). Session cookies are not accepted. |
 | Rate limit | 120 requests per minute and IP |
 | Server name | `ai-portal-knowledge` |
 

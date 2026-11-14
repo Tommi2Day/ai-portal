@@ -9,7 +9,7 @@ Provider credentials, AI models, knowledge collections and sources are **not** e
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP port |
-| `PUBLIC_URL` | `http://localhost:8080` | External base URL. Used for the OIDC redirect URI and absolute links in MCP results. |
+| `PUBLIC_URL` | `http://localhost:8080` | External base URL. Used for the OIDC redirect URI, absolute links in MCP results and the webhook addresses of knowledge sources shown in the admin UI. |
 | `DATABASE_URL` | `postgres://aiportal@localhost:5432/aiportal` | PostgreSQL connection string (pgvector required); the default has no password — set the full URL (or `PGPASSWORD`) |
 | `SESSION_SECRET` | – (required) | ≥ 32 characters; signs session and OIDC flow cookies |
 | `ENCRYPTION_KEY` | – (required) | 32 bytes, base64; AES-256-GCM key for stored credentials |
@@ -115,11 +115,19 @@ Group names are stored as the CN (`CN=IT-Team,OU=…` → `IT-Team`) and used fo
 | `OIDC_CLIENT_ID` | – | Application (client) ID |
 | `OIDC_CLIENT_SECRET` | – | Client secret (secret) |
 | `OIDC_SCOPES` | `openid profile email` | Requested scopes |
-| `OIDC_DISPLAY_NAME` | `Microsoft` | Label on the sign-in button |
+| `OIDC_DISPLAY_NAME` | `Microsoft` | Label on the sign-in button (“Sign in with …”); use a neutral name such as `SSO` or `Company login` if you do not use Entra ID |
 | `OIDC_ROLE_CLAIM` | `roles` | Claim that carries roles (Azure app roles) |
 | `OIDC_USER_VALUE` | – | If set, this value must be present in the role claim to sign in (e.g. `AiPortal.User`) |
 | `OIDC_ADMIN_VALUE` | – | Value that grants the admin role (e.g. `AiPortal.Admin`) |
 | `OIDC_GROUP_CLAIM` | `groups` | Claim with group names for knowledge-base access (role claim values are added too) |
+| `OIDC_ADMIN_GROUPS` | – | Comma-separated groups whose members become admins (compared with the group and role claims, case-insensitive; Entra: group object IDs) |
+| `OIDC_ADMIN_USERS` | – | Comma-separated admins by e-mail, `*@example.com`, or object ID (`oid`, else `sub`). Together with `OIDC_ADMIN_VALUE` / `OIDC_ADMIN_GROUPS`; the role is synced on every sign-in |
+| `OIDC_ALLOWED_GROUPS` / `OIDC_ALLOWED_USERS` | – | Same format. If either (or `OIDC_USER_VALUE`) is set, only matching users — and admins — may sign in; everyone else is denied. Also enforced for OAuth tokens on `/mcp` |
+| `OIDC_REQUIRE_VERIFIED_EMAIL` | `false` | `true`: match e-mails only if the provider marks `email_verified: true` (an e-mail marked `false` is always ignored). Leave off for Entra, which does not send the claim |
+
+The same assignments can be managed at runtime in **Administration → Single Sign-On** (stored in the database, applied within seconds on every replica; entries from these variables are shown read-only). Entries marked *Admin* grant the admin role; plain entries form the allow list, which denies everyone else once it exists. Admin-only entries never restrict sign-in by themselves.
+
+E-mail, `preferred_username` and `upn` are mutable attributes — for admins prefer the object ID, and keep the issuer to your own tenant.
 
 Redirect URI to register at the identity provider: `<PUBLIC_URL>/api/auth/oidc/callback`. Azure returns group **object IDs** in the `groups` claim unless configured otherwise; using app roles or configuring group names ("sAMAccountName" in the token configuration) is easier to maintain.
 
@@ -147,6 +155,31 @@ Redirect URI to register at the identity provider: `<PUBLIC_URL>/api/auth/oidc/c
 | `KNOWLEDGE_WORKER` | `true` | Run the sync scheduler in this process |
 | `KNOWLEDGE_FS_ROOT` | `/data/shares` | Mount root for file-share sources; paths outside are rejected |
 | `KNOWLEDGE_MAX_FILE_MB` | `50` | Maximum size of a single source document or upload |
+
+### OAuth 2.0 on `/mcp`
+
+Besides personal access tokens, `/mcp` accepts OAuth access tokens from your identity provider (Entra ID, Keycloak, …). The portal is only the resource server: it validates signature (JWKS), issuer, audience and lifetime locally. The token's subject (`oid`, else `sub`) must belong to a user who has already signed in via OIDC (`OIDC_ENABLED`) — unknown or deactivated users get `401`. Groups for knowledge-base access are taken from the token (`OIDC_GROUP_CLAIM`, `OIDC_ROLE_CLAIM`); `OIDC_USER_VALUE` is enforced as for sign-in.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MCP_OAUTH_ISSUER` | – | Issuer URL; enables OAuth on `/mcp` (`<issuer>/.well-known/openid-configuration` must exist). Entra: `https://login.microsoftonline.com/<tenant-id>/v2.0` |
+| `MCP_OAUTH_AUDIENCE` | `OIDC_CLIENT_ID` | Accepted `aud` values, comma separated, e.g. `api://<app-id>` |
+| `MCP_OAUTH_RESOURCE_SCOPES` | `<audience>/.default` | Scopes advertised to MCP clients (right for Entra; Keycloak: `openid profile email`) |
+| `MCP_OAUTH_ALLOWED_ISSUERS` | `MCP_OAUTH_ISSUER` | Accepted `iss` values, e.g. Entra v1 tokens `https://sts.windows.net/<tenant>/` |
+| `MCP_OAUTH_JWKS_URI` | discovery | Override the JWKS URL of the discovery document |
+
+**Hardening (see [Security](security.md#oauth-and-sso-what-to-know)):** set a dedicated `MCP_OAUTH_AUDIENCE`, use an https issuer, allow exactly one issuer, and give MCP clients short-lived tokens. Only asymmetric signature algorithms are accepted. The portal logs `mcp oauth:` warnings at startup for an `http` issuer, a missing audience and several allowed issuers.
+
+**What the identity provider needs** (the portal is only the resource server):
+
+| Need | Details |
+| --- | --- |
+| Client registration | MCP clients need a client ID at the provider: Dynamic Client Registration (Keycloak; **not** Entra ID) or a pre-registered public client with PKCE, e.g. `claude mcp add --transport http --client-id <id> ai-portal https://<portal>/mcp`. Allow the client's redirect URIs (`http://localhost:<port>/callback` for Claude Code, `https://claude.ai/api/mcp/auth_callback`) |
+| Audience | The access token must contain `aud` = `MCP_OAUTH_AUDIENCE`. Entra: scope `api://<app-id>/<scope>`; Keycloak: an *Audience* mapper |
+| Groups / e-mail | `OIDC_GROUP_CLAIM` / `OIDC_ROLE_CLAIM` and the subject (`oid`, else `sub`) must be in the **access token** (Keycloak *Group Membership* mapper, Entra *groups* claim) |
+| Scopes | `MCP_OAUTH_RESOURCE_SCOPES` must name scopes the provider knows (Entra: default; Keycloak: `openid profile email`) |
+
+Unauthenticated requests get `401` with a `resource_metadata` link to `<PUBLIC_URL>/.well-known/oauth-protected-resource`, so clients that implement the MCP authorization spec (Claude Code, VS Code, …) can log in by themselves. Set `PUBLIC_URL` correctly.
 
 ## Audit
 
