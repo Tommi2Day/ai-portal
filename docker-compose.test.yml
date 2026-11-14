@@ -1,7 +1,7 @@
 # Integration test stack (server/test/integration, `npm run test:integration` in server/).
 #
 #   docker compose -f docker-compose.test.yml up -d --wait        # everything (Oracle needs ~2 GB RAM)
-#   docker compose -f docker-compose.test.yml up -d --wait portal-db pg-mcp   # without Oracle, then IT_SKIP_ORACLE=1
+#   docker compose -f docker-compose.test.yml up -d --wait portal-db pg-mcp pg-mcp-oauth   # without Oracle, then IT_SKIP_ORACLE=1
 #   docker compose -f docker-compose.test.yml down -v
 #
 # The portal itself and the mock LLM run on the host (started by the tests); only
@@ -51,6 +51,59 @@ services:
       PG_USER: postgres
       PG_PASSWORD: postgres
     ports: ["127.0.0.1:${IT_PG_MCP_PORT:-3101}:3000"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 3s
+      start_period: 5s
+      retries: 30
+
+  # Real OIDC provider (Keycloak) with the realm "ai-portal" (server/test/integration/keycloak): two service-account
+  # clients for the OAuth client-credentials login of the portal; portal-it is in group grp-pg, portal-denied is not.
+  # Tokens carry the issuer http://keycloak:8080/realms/ai-portal (KC_HOSTNAME) so that containers can run OIDC discovery;
+  # the host (tests, portal process) reaches Keycloak at 127.0.0.1:<port> and only compares the issuer string.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME: http://keycloak:8080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    volumes:
+      - ./server/test/integration/keycloak/ai-portal-realm.json:/opt/keycloak/data/import/ai-portal.json:ro
+    ports: ["127.0.0.1:${IT_KEYCLOAK_PORT:-8180}:8080"]
+    healthcheck:
+      # no curl in the image: plain HTTP request to the management port
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # Second pg-mcp-server on the same database, protected by OAuth 2.0 (Keycloak access tokens, group grp-pg).
+  # AUTH_TOKEN stays as break-glass access. Compare pg-mcp above: static bearer token only, no OAuth.
+  pg-mcp-oauth:
+    image: tommi2day/pg-mcp-server:${PG_MCP_OAUTH_TAG:-1.1.0} # OAuth support since 1.1.0
+    depends_on:
+      pg-test: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+    environment:
+      TRANSPORT: http
+      PORT: 3000
+      AUTH_TOKEN: it-pg-oauth-admin
+      MCP_SERVER_NAME: pg-mcp-oauth-it
+      PG_HOST: pg-test
+      PG_PORT: 5432
+      PG_DATABASE: testdb
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      OAUTH_ISSUER: http://keycloak:8080/realms/ai-portal
+      OAUTH_AUDIENCE: api://pg-mcp
+      OAUTH_PUBLIC_URL: http://127.0.0.1:${IT_PG_MCP_OAUTH_PORT:-3103}
+      OAUTH_RESOURCE_SCOPES: openid profile email
+      OAUTH_ALLOWED_GROUPS: grp-pg
+    ports: ["127.0.0.1:${IT_PG_MCP_OAUTH_PORT:-3103}:3000"]
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
       interval: 3s

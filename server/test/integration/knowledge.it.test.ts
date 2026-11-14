@@ -4,6 +4,8 @@
  * portal's own MCP endpoint (/mcp) with personal access tokens.
  */
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, inject } from 'vitest';
 import { MockLlm, toolResults } from './mockLlm.js';
@@ -136,6 +138,163 @@ describe('file-share source', () => {
   it('rejects paths outside KNOWLEDGE_FS_ROOT', async () => {
     await expect(admin.post('/api/admin/knowledge/sources', { collectionId: itCollection, type: 'filesystem', name: 'evil', config: { path: '../../etc' } }))
       .rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('web source (http): subpages from a real web server', () => {
+  // a small wiki served by a real HTTP server in the test process; /wiki/ needs a bearer token
+  const pages: Record<string, string> = {
+    '/wiki/': '<title>Wiki home</title><h1>Wiki home</h1><p>Welcome.</p><a href="network.html">Network</a> <a href="/public/off.html">outside</a>',
+    '/wiki/network.html': '<title>Network</title><nav>NAVIGATION-NOISE</nav><p>The core switches run firmware 9.4.</p><a href="vlans.html">VLANs</a>',
+    '/wiki/vlans.html': '<title>VLANs</title><p>Management VLAN is 110.</p>',
+    '/public/off.html': '<title>Outside</title><p>Zebra-unique outside the start path.</p>',
+  };
+  let server: http.Server;
+  let base: string;
+  let sourceId: string;
+  const requests: { path: string; auth?: string }[] = [];
+  const source = async () => (await admin.get('/api/admin/knowledge/collections')).flatMap((c: any) => c.sources).find((s: any) => s.id === sourceId);
+  const titles = async () => ((await admin.get(`/api/admin/knowledge/sources/${sourceId}/documents`)) as { title: string }[]).map((d) => d.title).sort();
+  const sync = async () => {
+    const before = (await source())?.lastSyncAt;
+    await admin.post(`/api/admin/knowledge/sources/${sourceId}/sync`);
+    return until(async () => { const s = await source(); return s.lastSyncAt !== before && s.lastStatus !== 'running' && s; });
+  };
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      const path = new URL(req.url ?? '/', 'http://x').pathname;
+      requests.push({ path, auth: req.headers.authorization });
+      if (path.startsWith('/wiki/') && req.headers.authorization !== 'Bearer wiki-token') { res.writeHead(401).end('login required'); return; }
+      if (!(path in pages)) { res.writeHead(404).end('not found'); return; }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', etag: `"${pages[path].length}"` }).end(`<html><body>${pages[path]}</body></html>`);
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => new Promise<void>((r) => server.close(() => r())));
+
+  it('rejects invalid configurations and header names', async () => {
+    const create = (config: object, secret?: object) => admin.post('/api/admin/knowledge/sources', { collectionId: itCollection, type: 'http', name: 'bad', config, secret });
+    await expect(create({ startUrls: [] })).rejects.toMatchObject({ status: 400 });
+    await expect(create({ startUrls: ['ftp://x/y'] })).rejects.toMatchObject({ status: 400 });
+    await expect(create({ startUrls: [`${base}/wiki/`], maxPages: 0 })).rejects.toMatchObject({ status: 400 });
+    await expect(create({ startUrls: [`${base}/wiki/`] }, { 'bad header': 'x' })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('a wrong token fails the sync with a clear status', async () => {
+    sourceId = (await admin.post('/api/admin/knowledge/sources', {
+      collectionId: itCollection, type: 'http', name: 'IT wiki', syncIntervalMinutes: 0,
+      config: { startUrls: [`${base}/wiki/`], includeSubpages: true, maxDepth: 3 }, secret: { Authorization: 'Bearer wrong' },
+    })).id;
+    const s = await sync();
+    expect(s.lastStatus).toBe('error');
+    expect(s.lastError).toContain('HTTP 401');
+  });
+
+  it('imports the start page and its subpages with the configured header, stays inside the start path', async () => {
+    await admin.patch(`/api/admin/knowledge/sources/${sourceId}`, { secret: { Authorization: 'Bearer wiki-token' } });
+    const s = await sync();
+    expect(s.lastStatus).toBe('ok');
+    expect(await titles()).toEqual(['Network', 'VLANs', 'Wiki home']);
+    expect(requests.some((r) => r.path === '/public/off.html')).toBe(false);
+    const [hit] = await search(itUser, 'core switches firmware');
+    expect(hit).toMatchObject({ title: 'Network' });
+    expect(hit.content).not.toContain('NAVIGATION-NOISE');
+    expect((await search(itUser, 'Management VLAN 110')).some((h) => h.title === 'VLANs')).toBe(true);
+    expect((await search(itUser, 'Zebra-unique')).some((h) => h.title === 'Outside')).toBe(false);
+  });
+
+  it('skips unchanged pages, picks up changes and removes pages that vanished', async () => {
+    expect((await sync()).lastStats).toMatchObject({ unchanged: 3, added: 0, updated: 0, removed: 0 });
+    pages['/wiki/vlans.html'] = '<title>VLANs</title><p>Management VLAN is now 220.</p>';
+    delete pages['/wiki/network.html']; // also cuts the link chain to vlans.html
+    const s = await sync();
+    expect(await titles()).toEqual(['Wiki home']);
+    expect(s.lastStats).toMatchObject({ removed: 2 });
+  });
+
+  it('includeSubpages=false imports only the start page; maxDepth limits link depth', async () => {
+    pages['/wiki/network.html'] = '<title>Network</title><p>The core switches run firmware 9.4.</p><a href="vlans.html">VLANs</a>';
+    await admin.patch(`/api/admin/knowledge/sources/${sourceId}`, { config: { startUrls: [`${base}/wiki/`], includeSubpages: false } });
+    await sync();
+    expect(await titles()).toEqual(['Wiki home']);
+    await admin.patch(`/api/admin/knowledge/sources/${sourceId}`, { config: { startUrls: [`${base}/wiki/`], includeSubpages: true, maxDepth: 1 } });
+    await sync();
+    expect(await titles()).toEqual(['Network', 'Wiki home']);
+    await admin.patch(`/api/admin/knowledge/sources/${sourceId}`, { config: { startUrls: [`${base}/wiki/`], includeSubpages: true, maxDepth: 0 } });
+    await sync();
+    expect(await titles()).toEqual(['Network', 'VLANs', 'Wiki home']);
+  });
+
+  describe('updates: incremental, full replace, external trigger', () => {
+    /** Stored text of a document as a member of the collection reads it: the knowledge MCP tool, like an external client. */
+    let reader: Awaited<ReturnType<typeof mcpClient>> | undefined;
+    afterAll(async () => { await reader?.close(); });
+    const textOf = async (title: string) => {
+      reader ??= await mcpClient(`${portalUrl()}/mcp`, ((await itUser.post('/api/tokens', { name: 'update-reader', expiresInDays: 30 })) as { token: string }).token);
+      const d = ((await admin.get(`/api/admin/knowledge/sources/${sourceId}/documents`)) as { id: string; title: string }[]).find((x) => x.title === title)!;
+      return mcpText(await reader.callTool({ name: 'dokument_lesen', arguments: { dokument_id: d.id } }));
+    };
+    const hookUrl = () => `${portalUrl()}/api/hooks/knowledge/${sourceId}/sync`;
+    const callHook = (token: string, body?: object) => fetch(hookUrl(), { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+    const waitAfter = async (before: string | null) => until(async () => { const x = await source(); return x.lastSyncAt !== before && x.lastStatus !== 'running' && x; });
+
+    it('an incremental update keeps what the server reports as unchanged; a full replace re-imports every page, subpages included', async () => {
+      // same length -> same ETag -> "unchanged" for an incremental update
+      pages['/wiki/vlans.html'] = '<title>VLANs</title><p>Management VLAN is now 330.</p>';
+      expect((await sync()).lastStats).toMatchObject({ unchanged: 3, updated: 0 });
+      expect(await textOf('VLANs')).toContain('now 220');
+
+      await admin.patch(`/api/admin/knowledge/sources/${sourceId}`, { replaceOnSync: true });
+      expect((await sync()).lastStats).toMatchObject({ updated: 3, unchanged: 0, removed: 0 });
+      expect(await textOf('VLANs')).toContain('now 330');
+      expect(await textOf('VLANs')).not.toContain('now 220');
+
+      // a subpage disappears: the replaced import removes it, the others are re-imported
+      delete pages['/wiki/vlans.html'];
+      expect((await sync()).lastStats).toMatchObject({ updated: 2, removed: 1 });
+      expect(await titles()).toEqual(['Network', 'Wiki home']);
+    });
+
+    it('a source that cannot be read keeps the stored content', async () => {
+      const home = pages['/wiki/'];
+      delete pages['/wiki/'];
+      const failed = await sync();
+      expect(failed.lastStatus).toBe('error');
+      expect(failed.lastError).toContain('HTTP 404');
+      expect(await titles()).toEqual(['Network', 'Wiki home']); // nothing was removed or replaced
+      pages['/wiki/'] = home;
+    });
+
+    it('an external system triggers the update with the source token; a full replace can be requested per call', async () => {
+      await admin.patch(`/api/admin/knowledge/sources/${sourceId}`, { replaceOnSync: false, syncIntervalMinutes: 0 });
+      const { token, url } = (await admin.post(`/api/admin/knowledge/sources/${sourceId}/trigger-token`)) as { token: string; url: string };
+      expect(url).toBe(hookUrl());
+      expect((await callHook('kt_' + 'x'.repeat(43))).status).toBe(401);
+      expect((await fetch(hookUrl(), { method: 'POST' })).status).toBe(401);
+
+      // the page changes behind an unchanged ETag; the plain call is incremental, the next one replaces
+      pages['/wiki/network.html'] = '<title>Network</title><p>The core switches run firmware 9.5.</p><a href="vlans.html">VLANs</a>';
+      const before = (await source()).lastSyncAt;
+      const r1 = await callHook(token);
+      expect(r1.status).toBe(202);
+      expect(await r1.json()).toEqual({ started: true, replace: false });
+      expect((await waitAfter(before)).lastStats).toMatchObject({ updated: 0 });
+      expect(await textOf('Network')).toContain('9.4');
+
+      const before2 = (await source()).lastSyncAt;
+      const r2 = await callHook(token, { replace: true });
+      expect(await r2.json()).toEqual({ started: true, replace: true });
+      expect((await waitAfter(before2)).lastStats).toMatchObject({ updated: 2 });
+      expect(await textOf('Network')).toContain('9.5');
+
+      const audited = (await admin.get('/api/admin/audit?action=knowledge.sync&limit=3')) as { username: string; details: { trigger: string; replace: boolean } }[];
+      expect(audited[0]).toMatchObject({ username: 'external-trigger', details: { trigger: 'external', replace: true } });
+
+      await admin.del(`/api/admin/knowledge/sources/${sourceId}/trigger-token`);
+      expect((await callHook(token)).status).toBe(401);
+    });
   });
 });
 

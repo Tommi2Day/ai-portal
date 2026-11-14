@@ -107,3 +107,28 @@ export const mcpText = (r: unknown) =>
 export const PG_MCP = { url: process.env.IT_PG_MCP_URL ?? 'http://127.0.0.1:3101/mcp', token: 'it-pg-token' };
 export const ORACLE_MCP = { url: process.env.IT_ORACLE_MCP_URL ?? 'http://127.0.0.1:3102/mcp', token: 'it-oracle-token' };
 export const skipOracle = process.env.IT_SKIP_ORACLE === '1';
+
+/** pg-mcp-server with OAuth 2.0 (Keycloak access tokens, group grp-pg); AUTH_TOKEN is the break-glass token. */
+export const PG_MCP_OAUTH = { url: process.env.IT_PG_MCP_OAUTH_URL ?? 'http://127.0.0.1:3103/mcp', adminToken: 'it-pg-oauth-admin' };
+
+/** Real Keycloak, realm ai-portal (server/test/integration/keycloak/ai-portal-realm.json). */
+export const KEYCLOAK = {
+  /** `iss` of the tokens: Keycloak's in-network name (containers run discovery against it). */
+  issuer: 'http://keycloak:8080/realms/ai-portal',
+  /** The same realm as the host reaches it. */
+  base: process.env.IT_KEYCLOAK_URL ?? 'http://127.0.0.1:8180/realms/ai-portal',
+  get tokenUrl() { return `${this.base}/protocol/openid-connect/token`; },
+  allowed: { clientId: 'portal-it', clientSecret: 'portal-it-secret', subject: '11111111-1111-4111-8111-111111111111' },
+  denied: { clientId: 'portal-denied', clientSecret: 'portal-denied-secret' },
+};
+
+/** Access token from Keycloak (client credentials), as an MCP client or script would get it. */
+export async function keycloakToken(c: { clientId: string; clientSecret: string }) {
+  const res = await fetch(KEYCLOAK.tokenUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'client_credentials', client_id: c.clientId, client_secret: c.clientSecret }),
+  });
+  if (!res.ok) throw new Error(`Keycloak token request failed: HTTP ${res.status} ${await res.text()}`);
+  return ((await res.json()) as { access_token: string }).access_token;
+}

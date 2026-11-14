@@ -15,6 +15,7 @@ declare module 'vitest' {
     portalUrl: string;
     fsRoot: string;
     adminPassword: string;
+    portalDbUrl: string;
   }
 }
 
@@ -42,7 +43,7 @@ export default async function setup(project: TestProject) {
   const dbName = `aiportal_it_${Date.now()}`;
   const admin = new pg.Client({ connectionString: ADMIN_URL });
   try { await admin.connect(); } catch (e) {
-    throw new Error(`portal-db not reachable at ${ADMIN_URL} – start it with: docker compose -f docker-compose.test.yml up -d --wait\n${e}`);
+    throw new Error(`portal-db not reachable at ${ADMIN_URL} – start it with: docker compose -f docker-compose.test.yml up -d --wait`, { cause: e });
   }
   await admin.query(`CREATE DATABASE ${dbName}`);
   const dbUrl = new URL(ADMIN_URL);
@@ -78,6 +79,18 @@ export default async function setup(project: TestProject) {
       PORTAL_NAME: 'ACME AI Portal',
       PORTAL_THEME_CSS: path.join(webDir, 'theme.css'),
       PORTAL_LOGO: 'https://cdn.acme.example/logo.svg',
+      // OAuth access tokens of the real Keycloak (docker-compose.test.yml) on the portal's own /mcp endpoint
+      // SSO sign-in against the real Keycloak: discovery through the host-reachable URL (Keycloak answers with its
+      // in-network issuer name and host-reachable back-channel endpoints)
+      OIDC_ENABLED: 'true',
+      OIDC_ISSUER: process.env.IT_KEYCLOAK_URL ?? 'http://127.0.0.1:8180/realms/ai-portal',
+      OIDC_CLIENT_ID: 'ai-portal-web',
+      OIDC_CLIENT_SECRET: 'ai-portal-web-secret',
+      OIDC_DISPLAY_NAME: 'SSO',
+      OIDC_ADMIN_GROUPS: 'grp-admin',
+      MCP_OAUTH_ISSUER: 'http://keycloak:8080/realms/ai-portal',
+      MCP_OAUTH_JWKS_URI: `${process.env.IT_KEYCLOAK_URL ?? 'http://127.0.0.1:8180/realms/ai-portal'}/protocol/openid-connect/certs`,
+      MCP_OAUTH_AUDIENCE: 'api://ai-portal',
       LOG_LEVEL: 'info',
       NODE_ENV: 'test',
     },
@@ -89,6 +102,7 @@ export default async function setup(project: TestProject) {
   project.provide('portalUrl', url);
   project.provide('fsRoot', fsRoot);
   project.provide('adminPassword', ADMIN_PASSWORD);
+  project.provide('portalDbUrl', dbUrl.toString());
 
   return async () => {
     proc.kill();
