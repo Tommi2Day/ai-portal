@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import multer from 'multer';
 import { and, asc, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
@@ -6,12 +7,15 @@ import { config } from '../config.js';
 import { db, pool } from '../db/index.js';
 import { knowledgeArticles, knowledgeCollections, knowledgeDocuments, knowledgeSources, providers, users } from '../db/schema.js';
 import { audit } from '../audit.js';
+import { commentField } from '../comment.js';
 import { encryptJson } from '../crypto.js';
 import { EMBEDDING_PRESETS, getEmbedder, getEmbeddingSettings, setEmbeddingSettings } from '../knowledge/embeddings.js';
 import { collectionStats, indexDocument } from '../knowledge/store.js';
 import { accessibleCollections, documentMeta, hybridSearch, publishedArticleDocument } from '../knowledge/search.js';
 import { syncSource } from '../knowledge/sync.js';
+import { maskString, redactDeep } from '../redact.js';
 import { resolveFsPath } from '../knowledge/connectors/filesystem.js';
+import { hashToken } from './tokens.js';
 
 export const knowledgeAdminRouter = Router();
 export const knowledgeUserRouter = Router();
@@ -57,7 +61,11 @@ const collBody = z.object({
   description: z.string().max(500).optional(),
   public: z.boolean().optional(),
   allowedGroups: z.array(z.string().min(1).max(200)).max(100).optional(),
+  comment: commentField,
 });
+
+/** Where an external system calls the update webhook of a source (PUBLIC_URL, not the address the admin happens to use). */
+const hookUrl = (sourceId: string) => `${config.PUBLIC_URL.replace(/\/$/, '')}/api/hooks/knowledge/${sourceId}/sync`;
 
 knowledgeAdminRouter.get('/collections', async (_req, res) => {
   const [cols, stats, srcs] = await Promise.all([
@@ -65,12 +73,13 @@ knowledgeAdminRouter.get('/collections', async (_req, res) => {
     collectionStats(),
     db.select({
       id: knowledgeSources.id, collectionId: knowledgeSources.collectionId, type: knowledgeSources.type, name: knowledgeSources.name,
-      config: knowledgeSources.config, hasSecret: sql<boolean>`${knowledgeSources.secretEnc} is not null`,
-      syncIntervalMinutes: knowledgeSources.syncIntervalMinutes, enabled: knowledgeSources.enabled,
+      comment: knowledgeSources.comment, config: knowledgeSources.config, hasSecret: sql<boolean>`${knowledgeSources.secretEnc} is not null`,
+      syncIntervalMinutes: knowledgeSources.syncIntervalMinutes, replaceOnSync: knowledgeSources.replaceOnSync, enabled: knowledgeSources.enabled,
+      hasTrigger: sql<boolean>`${knowledgeSources.triggerTokenHash} is not null`, triggerTokenCreatedAt: knowledgeSources.triggerTokenCreatedAt,
       lastSyncAt: knowledgeSources.lastSyncAt, lastStatus: knowledgeSources.lastStatus, lastError: knowledgeSources.lastError, lastStats: knowledgeSources.lastStats,
     }).from(knowledgeSources).orderBy(asc(knowledgeSources.name)),
   ]);
-  res.json(cols.map((c) => ({ ...c, ...(stats.get(c.id) ?? { documents: 0, chunks: 0 }), sources: srcs.filter((s) => s.collectionId === c.id) })));
+  res.json(cols.map((c) => ({ ...c, ...(stats.get(c.id) ?? { documents: 0, chunks: 0 }), sources: srcs.filter((s) => s.collectionId === c.id).map((s) => ({ ...s, hookUrl: s.type === 'upload' ? null : hookUrl(s.id), config: redactDeep(s.config), lastError: s.lastError ? maskString(s.lastError) : s.lastError })) })));
 });
 
 knowledgeAdminRouter.post('/collections', async (req, res) => {
@@ -100,7 +109,23 @@ knowledgeAdminRouter.delete('/collections/:id', async (req, res) => {
 /* ---------------- Sources ---------------- */
 
 const fsCfg = z.object({ path: z.string().min(1), recursive: z.boolean().optional(), urlPrefix: z.string().optional(), exclude: z.array(z.string()).optional() });
-const confCfg = z.object({ baseUrl: z.string().url(), deployment: z.enum(['cloud', 'server']), spaceKeys: z.array(z.string().min(1)).min(1) });
+const confCfg = z.object({
+  baseUrl: z.string().url(), deployment: z.enum(['cloud', 'server']),
+  spaceKeys: z.array(z.string().min(1)).default([]),
+  /** page trees: these pages and (includeSubpages) their descendants */
+  rootPageIds: z.array(z.string().regex(/^\d+$/, 'Seiten-IDs bestehen aus Ziffern')).max(100).optional(),
+  includeSubpages: z.boolean().optional(),
+  maxDepth: z.number().int().min(0).max(50).optional(),
+}).refine((c) => c.spaceKeys.length > 0 || (c.rootPageIds?.length ?? 0) > 0, 'Space-Keys oder Seiten-IDs erforderlich');
+const httpUrl = z.string().url().refine((u) => /^https?:\/\//i.test(u), 'Nur http(s)-URLs');
+const httpCfg = z.object({
+  startUrls: z.array(httpUrl).min(1).max(50),
+  includeSubpages: z.boolean().optional(),
+  maxDepth: z.number().int().min(0).max(50).optional(),
+  maxPages: z.number().int().min(1).max(5000).optional(),
+  pathPrefix: z.string().max(500).optional(),
+  exclude: z.array(z.string().min(1)).max(100).optional(),
+});
 const spCfg = z.object({
   tenantId: z.string().min(1), clientId: z.string().min(1), siteUrl: z.string().url().optional(), userPrincipalName: z.string().optional(),
   driveName: z.string().optional(), folderPath: z.string().optional(), graphBaseUrl: z.string().url().optional(), loginBaseUrl: z.string().url().optional(),
@@ -108,20 +133,50 @@ const spCfg = z.object({
 
 const sourceBody = z.object({
   collectionId: z.string().uuid(),
-  type: z.enum(['filesystem', 'confluence', 'sharepoint']),
+  type: z.enum(['filesystem', 'confluence', 'sharepoint', 'http']),
   name: z.string().min(1).max(100),
   config: z.record(z.string(), z.unknown()),
-  /** write-only: confluence {email, apiToken} | {token}; sharepoint {clientSecret} */
+  /** write-only: confluence {email, apiToken} | {token}; sharepoint {clientSecret}; http: request headers, e.g. {Authorization: "Bearer …"} */
   secret: z.record(z.string(), z.string()).optional(),
+  /** automatic update every n minutes, 0 = no schedule (manual and/or external trigger) */
   syncIntervalMinutes: z.number().int().min(0).max(10080).optional(),
+  /** every update re-imports all documents in place instead of only the changed ones */
+  replaceOnSync: z.boolean().optional(),
   enabled: z.boolean().optional(),
+  comment: commentField,
 });
 
 function validateConfig(type: string, cfg: unknown) {
   if (type === 'filesystem') { const c = fsCfg.parse(cfg); resolveFsPath(c.path); return c; }
   if (type === 'confluence') return confCfg.parse(cfg);
+  if (type === 'http') return httpCfg.parse(cfg);
   return spCfg.parse(cfg);
 }
+
+/**
+ * Credentials of a source replace the stored ones completely, so each type needs its complete set:
+ * Confluence Cloud {email, apiToken}, Server/DC {token}, SharePoint {clientSecret}; web pages send them as request
+ * headers (plain header names, an empty set removes them); file shares and uploads have none.
+ */
+function validateSecret(type: string, secret?: Record<string, string>, config: Record<string, unknown> = {}) {
+  if (!secret) return;
+  const has = (k: string) => typeof secret[k] === 'string' && secret[k].trim() !== '';
+  const only = (allowed: string[]) => { if (Object.keys(secret).some((k) => !allowed.includes(k))) throw new Error('Unbekanntes Zugangsdaten-Feld'); };
+  if (type === 'filesystem' || type === 'upload') throw new Error('Diese Quelle hat keine Zugangsdaten');
+  if (type === 'http') {
+    if (Object.keys(secret).some((k) => !/^[A-Za-z0-9-]{1,64}$/.test(k))) throw new Error('Ungültiger Header-Name');
+  } else if (type === 'sharepoint') {
+    only(['clientSecret']);
+    if (!has('clientSecret')) throw new Error('Client-Secret fehlt');
+  } else if (type === 'confluence') {
+    only(['email', 'apiToken', 'token']);
+    if (config.deployment === 'cloud') { if (!has('email') || !has('apiToken')) throw new Error('E-Mail und API-Token erforderlich'); }
+    else if (!has('token')) throw new Error('Personal Access Token erforderlich');
+  }
+}
+
+/** Encrypted credentials for storing; an empty set (web pages: no headers) is stored as "none". */
+const secretEnc = (secret: Record<string, string>) => (Object.keys(secret).length ? encryptJson(secret) : null);
 
 knowledgeAdminRouter.post('/sources', async (req, res) => {
   const p = sourceBody.safeParse(req.body);
@@ -129,7 +184,8 @@ knowledgeAdminRouter.post('/sources', async (req, res) => {
   let cfg;
   try { cfg = validateConfig(p.data.type, p.data.config); } catch (e) { return res.status(400).json({ error: e instanceof z.ZodError ? e.issues.map((i) => i.message).join(', ') : (e as Error).message }); }
   const { secret, ...d } = p.data;
-  const [s] = await db.insert(knowledgeSources).values({ ...d, config: cfg as Record<string, unknown>, secretEnc: secret ? encryptJson(secret) : null }).returning();
+  try { validateSecret(d.type, secret, cfg as Record<string, unknown>); } catch (e) { return res.status(400).json({ error: (e as Error).message }); }
+  const [s] = await db.insert(knowledgeSources).values({ ...d, config: cfg as Record<string, unknown>, secretEnc: secret ? secretEnc(secret) : null }).returning();
   await audit(req, { action: 'knowledge.source.create', targetType: 'knowledge_source', targetId: s.id, details: { name: s.name, type: s.type, config: cfg } });
   res.status(201).json({ id: s.id });
 });
@@ -144,7 +200,8 @@ knowledgeAdminRouter.patch('/sources/:id', async (req, res) => {
     try { cfg = validateConfig(cur.type, p.data.config); } catch (e) { return res.status(400).json({ error: (e as Error).message }); }
   }
   const { secret, config: _c, ...d } = p.data;
-  await db.update(knowledgeSources).set({ ...d, ...(cfg ? { config: cfg as Record<string, unknown> } : {}), ...(secret ? { secretEnc: encryptJson(secret) } : {}) })
+  try { validateSecret(cur.type, secret, (cfg ?? cur.config) as Record<string, unknown>); } catch (e) { return res.status(400).json({ error: (e as Error).message }); }
+  await db.update(knowledgeSources).set({ ...d, ...(cfg ? { config: cfg as Record<string, unknown> } : {}), ...(secret ? { secretEnc: secretEnc(secret) } : {}) })
     .where(eq(knowledgeSources.id, cur.id));
   await audit(req, { action: 'knowledge.source.update', targetType: 'knowledge_source', targetId: cur.id, details: { ...d, config: cfg, secretChanged: !!secret } });
   res.json({ ok: true });
@@ -157,12 +214,36 @@ knowledgeAdminRouter.delete('/sources/:id', async (req, res) => {
   res.status(204).end();
 });
 
-/** Starts a sync in the background; the UI polls the source status. */
+/** Starts an update in the background; the UI polls the source status. Body `{replace}` overrides the source's setting for this run. */
 knowledgeAdminRouter.post('/sources/:id/sync', async (req, res) => {
-  const [s] = await db.select({ id: knowledgeSources.id }).from(knowledgeSources).where(eq(knowledgeSources.id, req.params.id));
+  const opts = z.object({ replace: z.boolean().optional() }).safeParse(req.body ?? {});
+  if (!opts.success) return bad(res, opts.error);
+  const [s] = await db.select({ id: knowledgeSources.id, replaceOnSync: knowledgeSources.replaceOnSync }).from(knowledgeSources).where(eq(knowledgeSources.id, req.params.id));
   if (!s) return res.status(404).end();
-  void syncSource(s.id, 'manual', { id: req.user!.id, username: req.user!.username });
-  res.status(202).json({ started: true });
+  void syncSource(s.id, 'manual', { id: req.user!.id, username: req.user!.username }, { replace: opts.data.replace });
+  res.status(202).json({ started: true, replace: opts.data.replace ?? s.replaceOnSync });
+});
+
+/**
+ * External trigger: creates (or replaces) the token with which another system starts an update of this source,
+ * see routes/knowledgeHooks.ts. The token is shown once, only its hash is stored.
+ */
+knowledgeAdminRouter.post('/sources/:id/trigger-token', async (req, res) => {
+  const [s] = await db.select({ id: knowledgeSources.id, type: knowledgeSources.type, name: knowledgeSources.name }).from(knowledgeSources).where(eq(knowledgeSources.id, req.params.id));
+  if (!s) return res.status(404).end();
+  if (s.type === 'upload') return res.status(400).json({ error: 'Uploads haben keine externe Quelle, die aktualisiert werden könnte' });
+  const token = `kt_${crypto.randomBytes(32).toString('base64url')}`;
+  await db.update(knowledgeSources).set({ triggerTokenHash: hashToken(token), triggerTokenCreatedAt: new Date() }).where(eq(knowledgeSources.id, s.id));
+  await audit(req, { action: 'knowledge.source.trigger_token', targetType: 'knowledge_source', targetId: s.id, details: { name: s.name, change: 'created' } });
+  res.status(201).json({ token, url: hookUrl(s.id) });
+});
+
+knowledgeAdminRouter.delete('/sources/:id/trigger-token', async (req, res) => {
+  const [s] = await db.update(knowledgeSources).set({ triggerTokenHash: null, triggerTokenCreatedAt: null })
+    .where(eq(knowledgeSources.id, req.params.id)).returning({ id: knowledgeSources.id, name: knowledgeSources.name });
+  if (!s) return res.status(404).end();
+  await audit(req, { action: 'knowledge.source.trigger_token', targetType: 'knowledge_source', targetId: s.id, details: { name: s.name, change: 'revoked' } });
+  res.status(204).end();
 });
 
 knowledgeAdminRouter.get('/sources/:id/documents', async (req, res) => {

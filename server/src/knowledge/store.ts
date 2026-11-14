@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { safeErrorText } from '../redact.js';
 import { and, eq } from 'drizzle-orm';
 import { db, pool } from '../db/index.js';
 import { knowledgeChunks, knowledgeDocuments, type KnowledgeSource } from '../db/schema.js';
@@ -77,7 +78,7 @@ export async function indexDocument(source: KnowledgeSource, doc: IncomingDoc, e
   try {
     text = doc.text ?? (doc.data ? await extractTextFrom(doc.filename, doc.mimeType ?? 'application/octet-stream', doc.data) : null);
   } catch (e) {
-    await upsertDoc(existing?.id, { ...base, status: 'error', error: `Extraktion fehlgeschlagen: ${(e as Error).message}`, chunkCount: 0 });
+    await upsertDoc(existing?.id, { ...base, status: 'error', error: `Extraktion fehlgeschlagen: ${safeErrorText(e)}`, chunkCount: 0 });
     return 'error';
   }
   if (!text?.trim()) {
@@ -91,7 +92,7 @@ export async function indexDocument(source: KnowledgeSource, doc: IncomingDoc, e
   try {
     vectors = await embedder.embed(chunks);
   } catch (e) {
-    await upsertDoc(existing?.id, { ...base, status: 'error', error: `Embedding fehlgeschlagen: ${(e as Error).message}`, chunkCount: 0 });
+    await upsertDoc(existing?.id, { ...base, status: 'error', error: `Embedding fehlgeschlagen: ${safeErrorText(e)}`, chunkCount: 0 });
     return 'error';
   }
   const dim = vectors[0]?.length ?? 0;

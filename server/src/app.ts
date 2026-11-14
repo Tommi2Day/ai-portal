@@ -18,6 +18,8 @@ import { filesRouter } from './routes/files.js';
 import { chatsRouter, modelsRouter } from './routes/chats.js';
 import { knowledgeAdminRouter, knowledgeUserRouter } from './routes/knowledge.js';
 import { mcpAuth, mcpHandler } from './knowledge/mcpServer.js';
+import { oauthWarnings, protectedResourceMetadata } from './knowledge/mcpOauth.js';
+import { knowledgeHooksRouter } from './routes/knowledgeHooks.js';
 import { tokensRouter } from './routes/tokens.js';
 import { pluginsAdminRouter, pluginsRouter } from './routes/plugins.js';
 import rateLimit from 'express-rate-limit';
@@ -58,6 +60,9 @@ export function createApp(branding: Branding) {
     try { await pool.query('select 1'); res.json({ ok: true }); } catch { res.status(503).json({ ok: false }); }
   });
 
+  // External triggers authenticate with their own token (no session, no CSRF header): mounted before the session layer
+  if (config.KNOWLEDGE_ENABLED) app.use('/api/hooks/knowledge', knowledgeHooksRouter);
+
   app.use('/api', i18nMiddleware, sessionMiddleware, csrfGuard);
   app.use('/api/auth', authRouter);
   app.use('/api/admin', requireAdmin, adminRouter);
@@ -72,6 +77,8 @@ export function createApp(branding: Branding) {
     app.use('/api/admin/knowledge', requireAdmin, knowledgeAdminRouter);
     app.use('/api/knowledge', requireAuth, knowledgeUserRouter);
     // Knowledge base as MCP server for external clients (LibreChat, Claude Desktop, IDEs)
+    for (const w of oauthWarnings()) logger.warn(`mcp oauth: ${w}`);
+    app.get(['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'], protectedResourceMetadata);
     app.all('/mcp', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false }), mcpAuth, mcpHandler);
   }
   app.use('/api', (_req, res) => res.status(404).json({ error: 'not found' }));

@@ -1,13 +1,15 @@
-import { and, eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import { db, pool } from '../db/index.js';
 import { knowledgeDocuments, knowledgeSources, type KnowledgeSource } from '../db/schema.js';
 import { decryptJson } from '../crypto.js';
 import { audit } from '../audit.js';
 import { logger } from '../logger.js';
+import { safeErrorText } from '../redact.js';
 import { getEmbedder, type Embedder } from './embeddings.js';
 import { indexDocument, planDocument, removeMissing } from './store.js';
 import { filesystemConnector, type FilesystemConfig } from './connectors/filesystem.js';
 import { confluenceConnector, type ConfluenceConfig, type ConfluenceSecret } from './connectors/confluence.js';
+import { httpConnector, type HttpConfig, type HttpSecret } from './connectors/http.js';
 import { sharepointConnector, type SharePointConfig, type SharePointSecret } from './connectors/sharepoint.js';
 import type { Connector, DocRef } from './connectors/types.js';
 
@@ -16,6 +18,7 @@ export function connectorFor(s: KnowledgeSource): Connector | null {
     case 'filesystem': return filesystemConnector(s.config as unknown as FilesystemConfig);
     case 'confluence': return confluenceConnector(s.config as unknown as ConfluenceConfig, decryptJson<ConfluenceSecret>(s.secretEnc, {}));
     case 'sharepoint': return sharepointConnector(s.config as unknown as SharePointConfig, decryptJson<SharePointSecret>(s.secretEnc, { clientSecret: '' }));
+    case 'http': return httpConnector(s.config as unknown as HttpConfig, decryptJson<HttpSecret>(s.secretEnc, {}));
     case 'upload': return null;
   }
 }
@@ -33,9 +36,12 @@ async function reindexUploads(s: KnowledgeSource, embedder: Embedder, stats: Rec
 
 type Stats = Record<string, number>;
 
-/** One document of a connector: skip if unchanged, re-embed stored text if only the model changed, else load and index. */
-async function syncDocument(s: KnowledgeSource, ref: DocRef, embedder: Embedder, stats: Stats) {
-  const plan = await planDocument(s.id, ref.externalId, ref.version, embedder.key);
+/**
+ * One document of a connector: skip if unchanged, re-embed stored text if only the model changed, else load and index.
+ * With `replace` nothing is skipped: the stored document is overwritten in place with what the source delivers now.
+ */
+async function syncDocument(s: KnowledgeSource, ref: DocRef, embedder: Embedder, stats: Stats, replace: boolean) {
+  const plan = replace ? ({ action: 'fetch' } as const) : await planDocument(s.id, ref.externalId, ref.version, embedder.key);
   if (plan.action === 'unchanged') {
     // cheap backfill: documents indexed before author/modification time were recorded get them without re-embedding
     const stale = (ref.author && ref.author !== plan.author) || (ref.modifiedAt && ref.modifiedAt.getTime() !== plan.modifiedAt?.getTime());
@@ -51,17 +57,26 @@ async function syncDocument(s: KnowledgeSource, ref: DocRef, embedder: Embedder,
   stats[r === 'error' ? 'errors' : r]++;
 }
 
-/** Connector sources: index new/changed documents, remove documents that disappeared from the source. */
-async function syncConnector(s: KnowledgeSource, embedder: Embedder, stats: Stats) {
+/**
+ * Connector sources: index new/changed documents (all of them with `replace`), remove documents that disappeared from
+ * the source, which includes subpages that are no longer part of it (subpage settings changed, page moved or deleted).
+ * Content is replaced in place and vanished documents are removed only after the source was listed completely: a
+ * failing source keeps its previous content, and so does a full replace that finds nothing at all.
+ */
+async function syncConnector(s: KnowledgeSource, embedder: Embedder, stats: Stats, replace: boolean) {
   const seen: string[] = [];
   for await (const ref of connectorFor(s)!.list()) {
     seen.push(ref.externalId);
     try {
-      await syncDocument(s, ref, embedder, stats);
+      await syncDocument(s, ref, embedder, stats, replace);
     } catch (e) {
       stats.errors++;
       logger.warn({ err: e, source: s.name, doc: ref.externalId }, 'knowledge document failed');
     }
+  }
+  if (replace && seen.length === 0) {
+    const [{ n }] = await db.select({ n: count() }).from(knowledgeDocuments).where(eq(knowledgeDocuments.sourceId, s.id));
+    if (n > 0) throw new Error('Quelle lieferte keine Dokumente – der bestehende Inhalt bleibt erhalten');
   }
   stats.removed = await removeMissing(s.id, seen);
 }
@@ -69,13 +84,19 @@ async function syncConnector(s: KnowledgeSource, embedder: Embedder, stats: Stat
 /** 64-bit advisory lock key per source -> only one pod syncs a source at a time. */
 const lockKey = (id: string) => BigInt.asIntN(64, BigInt('0x' + id.replaceAll('-', '').slice(0, 16))).toString();
 
-export async function syncSource(sourceId: string, trigger: 'schedule' | 'manual', actor?: { id: string; username: string }) {
+export type SyncTrigger = 'schedule' | 'manual' | 'external';
+export interface SyncOptions {
+  /** Overrides the source's `replaceOnSync` for this run (undefined = use the setting). */
+  replace?: boolean;
+}
+
+export async function syncSource(sourceId: string, trigger: SyncTrigger, actor?: { id: string; username: string }, opts: SyncOptions = {}) {
   const lockClient = await pool.connect();
   try {
     const { rows } = await lockClient.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1::bigint) AS ok', [lockKey(sourceId)]);
     if (!rows[0].ok) return { skipped: 'läuft bereits' };
     try {
-      return await runSync(sourceId, trigger, actor);
+      return await runSync(sourceId, trigger, actor, opts);
     } finally {
       await lockClient.query('SELECT pg_advisory_unlock($1::bigint)', [lockKey(sourceId)]);
     }
@@ -84,20 +105,21 @@ export async function syncSource(sourceId: string, trigger: 'schedule' | 'manual
   }
 }
 
-async function runSync(sourceId: string, trigger: string, actor?: { id: string; username: string }) {
+async function runSync(sourceId: string, trigger: SyncTrigger, actor: { id: string; username: string } | undefined, opts: SyncOptions) {
   const [s] = await db.select().from(knowledgeSources).where(eq(knowledgeSources.id, sourceId));
   if (!s) return { skipped: 'nicht gefunden' };
   const started = Date.now();
   const stats: Record<string, number> = { added: 0, updated: 0, unchanged: 0, removed: 0, skipped: 0, errors: 0 };
   await db.update(knowledgeSources).set({ lastStatus: 'running', lastError: null }).where(eq(knowledgeSources.id, s.id));
+  const replace = s.type !== 'upload' && (opts.replace ?? s.replaceOnSync);
   let error: string | undefined;
   try {
     const embedder = await getEmbedder();
     if (!embedder) throw new Error('Kein Embedding-Modell konfiguriert');
     if (s.type === 'upload') await reindexUploads(s, embedder, stats);
-    else await syncConnector(s, embedder, stats);
+    else await syncConnector(s, embedder, stats, replace);
   } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
+    error = safeErrorText(e);
     logger.error({ err: e, source: s.name }, 'knowledge sync failed');
   }
   const ms = Date.now() - started;
@@ -105,8 +127,8 @@ async function runSync(sourceId: string, trigger: string, actor?: { id: string; 
     lastStatus: error ? 'error' : 'ok', lastError: error ?? null, lastSyncAt: new Date(), lastStats: { ...stats, ms },
   }).where(eq(knowledgeSources.id, s.id));
   await audit(null, {
-    action: 'knowledge.sync', userId: actor?.id ?? null, username: actor?.username ?? 'system', targetType: 'knowledge_source', targetId: s.id,
-    success: !error, details: { source: s.name, type: s.type, trigger, ms, ...stats, error },
+    action: 'knowledge.sync', userId: actor?.id ?? null, username: actor?.username ?? (trigger === 'external' ? 'external-trigger' : 'system'), targetType: 'knowledge_source', targetId: s.id,
+    success: !error, details: { source: s.name, type: s.type, trigger, replace, ms, ...stats, error },
   });
   return { stats, error, ms };
 }
