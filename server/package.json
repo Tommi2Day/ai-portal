@@ -1,6 +1,6 @@
 {
   "name": "ai-portal-server",
-  "version": "0.2.2",
+  "version": "1.0.0",
   "license": "MIT",
   "scripts": {
     "dev": "tsx watch src/main.ts",

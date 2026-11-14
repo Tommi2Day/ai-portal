@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-15
+
+First feature complete release: OAuth2/SSO for the GUI and `/mcp`, OAuth client credentials for MCP servers, central secret masking, web and Confluence page-tree knowledge sources with automatic/manual/webhook updates, source settings, admin notes, and ESLint plus reworked CI.
+
 ### Added
 - **Source settings panel** (*Settings* on a knowledge source): a **Source active** switch (stops scheduled and external updates, manual sync still works, documents stay searchable; disabled sources are marked in the table) and a **credentials form** per source type that replaces the stored set completely (Confluence Cloud e-mail + API token, Server/DC token, SharePoint client secret, web headers; nothing is ever shown, *Replace & sync* tests new credentials at once). The API validates the credentials shape per source type; an empty set removes a web source's headers.
 - **Knowledge sources**
@@ -187,7 +191,8 @@ server, audit log, German and English UI, Docker Compose and Kubernetes manifest
 - Knowledge base: `chunkText` with `overlap = 0` repeated the complete previous chunk in every chunk (not reachable with
   the default overlap of 300).
 
-[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/0.2.2...HEAD
+[Unreleased]: https://github.com/Tommi2Day/ai-portal/compare/1.0.0...HEAD
+[1.0.0]: https://github.com/Tommi2Day/ai-portal/compare/0.2.2...1.0.0
 [0.2.2]: https://github.com/Tommi2Day/ai-portal/compare/0.2.1...0.2.2
 [0.2.1]: https://github.com/Tommi2Day/ai-portal/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/Tommi2Day/ai-portal/compare/0.0.3...0.2.0
