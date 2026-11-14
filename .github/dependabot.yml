@@ -1,0 +1,40 @@
+version: 2
+updates:
+  # server/ and web/ are separate npm projects; the groups keep related bumps in one PR
+  - package-ecosystem: "npm"
+    directory: "/server"
+    schedule:
+      interval: "monthly"
+    groups:
+      production:
+        patterns: ["@modelcontextprotocol/*", "@ai-sdk/*", "ai", "express", "zod", "drizzle-orm", "pg", "jose", "openid-client"]
+      toolchain:
+        patterns: ["typescript", "typescript-eslint", "@typescript-eslint/*", "eslint", "@eslint/*", "globals", "tsx", "vitest", "@vitest/*", "drizzle-kit"]
+      dev:
+        patterns: ["*"]
+
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "monthly"
+    groups:
+      production:
+        patterns: ["react", "react-dom", "react-markdown", "remark-*"]
+      toolchain:
+        patterns: ["typescript", "typescript-eslint", "@typescript-eslint/*", "eslint", "@eslint/*", "eslint-plugin-*", "globals", "vite", "@vitejs/*", "vitest", "@vitest/*"]
+      dev:
+        patterns: ["*"]
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    # Node major stays in sync with node-version in ci.yml/release.yml; bump all of them by hand
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

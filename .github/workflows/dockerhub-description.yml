@@ -1,0 +1,32 @@
+name: Docker Hub Description
+
+# Pushes DOCKERHUB.md (a compact version of README.md, which exceeds Docker Hub's
+# 25,000 character limit) and the short description to Docker Hub.
+on:
+  push:
+    branches: [main]
+    paths:
+      - DOCKERHUB.md
+      - .github/workflows/dockerhub-description.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-description:
+    name: Update Docker Hub description
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Third-party action that receives the Docker Hub token: pinned to a commit, not to a movable tag.
+      # Dependabot (github-actions) keeps the SHA and the version comment up to date.
+      # Requires a Docker Hub access token with Read, Write, Delete scope (Docker Hub offers nothing narrower for descriptions).
+      - uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: tommi2day/ai-portal
+          short-description: "Self-hosted AI chat portal: LDAP/OIDC, managed AI providers, per-user MCP, knowledge base, audit"
+          readme-filepath: ./DOCKERHUB.md

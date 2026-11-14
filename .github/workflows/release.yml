@@ -1,8 +1,10 @@
 name: Release
 
-# Publishes the image tommi2day/ai-portal on Docker Hub:
-#   git tag 1.2.3 && git push origin 1.2.3     → :1.2.3 :1.2 :1 :latest :sha-<short>
-#   Actions → Release → Run workflow (tag)      → bumps the versions on main first, then the same
+# Publishes the image tommi2day/ai-portal on Docker Hub and creates the GitHub release:
+#   git tag 1.2.3 && git push origin 1.2.3     → :1.2.3 :1.2 :1 :latest :sha-<short>, release 1.2.3
+#   Actions → Release → Run workflow (tag)      → bumps the versions and the CHANGELOG on main first, then the same,
+#                                                 and creates the tag
+# The GitHub release notes are the CHANGELOG.md section "## [1.2.3]" plus the generated list of pull requests.
 on:
   push:
     tags:
@@ -15,6 +17,9 @@ on:
         description: "Version / Docker image tag (e.g. 1.2.3)"
         required: true
         type: string
+
+permissions:
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -37,13 +42,24 @@ jobs:
         with:
           node-version: 24
 
-      - name: Update package.json files and Kubernetes image tag
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.tag }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must look like 1.2.3"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" > /dev/null; then echo "tag $VERSION already exists"; exit 1; fi
+
+      - name: Update package.json files, Kubernetes image tag and CHANGELOG
         env:
           VERSION: ${{ inputs.tag }}
         run: |
           (cd server && npm version "$VERSION" --no-git-tag-version --allow-same-version)
           (cd web && npm version "$VERSION" --no-git-tag-version --allow-same-version)
           sed -i -E "s/^(\s*newTag: ).*/\1\"$VERSION\"/" deploy/k8s/kustomization.yaml
+          # "## [Unreleased]" becomes the new version, followed by a fresh empty Unreleased section
+          if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+            sed -i "0,/^## \[Unreleased\]/s//## [Unreleased]\n\n## [$VERSION] - $(date -u +%F)/" CHANGELOG.md
+          fi
 
       - name: Commit and push
         env:
@@ -51,12 +67,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add server/package.json server/package-lock.json web/package.json web/package-lock.json deploy/k8s/kustomization.yaml
+          git add server/package.json server/package-lock.json web/package.json web/package-lock.json deploy/k8s/kustomization.yaml CHANGELOG.md
           git diff --cached --quiet || git commit -m "chore: bump version to $VERSION"
           git push
 
-  test:
-    name: Unit tests & build
+  lint-and-test:
+    name: Lint & Test
     runs-on: ubuntu-latest
     needs: [bump-version]
     if: always() && !failure() && !cancelled()
@@ -76,11 +92,11 @@ jobs:
 
       - name: Server
         working-directory: server
-        run: npm ci && npm test && npm run build
+        run: npm ci && npm run lint && npm test && npm run build
 
       - name: Web
         working-directory: web
-        run: npm ci && npm run i18n:check && npm test && npm run build
+        run: npm ci && npm run lint && npm run i18n:check && npm test && npm run build
 
   integration:
     name: Integration tests
@@ -118,7 +134,7 @@ jobs:
   docker:
     name: Build & Push
     runs-on: ubuntu-latest
-    needs: [test, integration]
+    needs: [lint-and-test, integration]
     # bump-version is skipped on tag push; without an explicit status check the
     # implicit success() would skip this job because of that skipped ancestor.
     if: always() && !failure() && !cancelled()
@@ -162,3 +178,43 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [docker]
+    if: always() && !failure() && !cancelled() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # a manual start tags main including the version bump commit, not the commit the run was started from
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+
+      - name: Create and push tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$VERSION"
+          git push origin "$VERSION"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          # CHANGELOG.md section "## [<tag>]" first, the generated PR list is appended
+          awk -v tag="$TAG" '
+            index($0, "## [" tag "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --generate-notes
