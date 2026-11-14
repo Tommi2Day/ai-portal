@@ -10,6 +10,7 @@ import { languageModel } from '../ai/providers.js';
 import { openMcpSession } from '../ai/mcp.js';
 import { AnswerRecorder, chatTitle, systemPrompt, toModelMessages, type StreamEvent } from '../ai/answer.js';
 import { logger } from '../logger.js';
+import { safeErrorText } from '../redact.js';
 import { langOf, tr } from '../i18n.js';
 import { accessibleCollections, knowledgeTool } from '../knowledge/search.js';
 import { getEmbeddingSettings } from '../knowledge/embeddings.js';
@@ -114,7 +115,7 @@ async function mcpTools(req: Req, use: boolean) {
   );
 }
 
-const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const errorText = safeErrorText;
 
 /** Runs the model and passes every event for the browser to send. */
 async function streamAnswer(rec: AnswerRecorder, opts: Parameters<typeof streamText>[0], send: (ev: StreamEvent) => void) {

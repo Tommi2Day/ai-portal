@@ -4,11 +4,11 @@ import { fmtDate, fmtDateTime, t } from './i18n';
 
 interface Srv {
   id: string; name: string; url: string; transport: 'streamable-http' | 'sse'; enabled: boolean;
-  headerNames: string[]; lastStatus: string | null; lastError: string | null; toolCount: number | null;
+  headerNames: string[]; oauth: { tokenUrl: string; clientId: string; scope: string } | null; lastStatus: string | null; lastError: string | null; toolCount: number | null;
 }
 interface TestResult { ok: boolean; tools?: { name: string; description?: string }[]; error?: string }
 
-const empty: { name: string; url: string; transport: 'streamable-http' | 'sse'; headerName: string; headerValue: string } = { name: '', url: '', transport: 'streamable-http', headerName: 'Authorization', headerValue: '' };
+const empty = { name: '', url: '', transport: 'streamable-http' as Srv['transport'], auth: 'header' as 'header' | 'oauth', headerName: 'Authorization', headerValue: '', tokenUrl: '', clientId: '', clientSecret: '', scope: '' };
 
 export function McpSettings() {
   const [list, setList] = useState<Srv[]>([]);
@@ -25,7 +25,8 @@ export function McpSettings() {
       await api('/mcp-servers', {
         body: {
           name: form.name, url: form.url, transport: form.transport,
-          headers: form.headerValue ? { [form.headerName]: form.headerValue } : undefined,
+          headers: form.auth === 'header' && form.headerValue ? { [form.headerName]: form.headerValue } : undefined,
+          oauth: form.auth === 'oauth' ? { tokenUrl: form.tokenUrl, clientId: form.clientId, clientSecret: form.clientSecret, scope: form.scope || undefined } : undefined,
         },
       });
       setForm(empty); load();
@@ -47,7 +48,7 @@ export function McpSettings() {
         <tbody>
           {list.map((s) => (
             <tr key={s.id}>
-              <td>{s.name}{s.headerNames.length > 0 && <div className="muted small">{t('Header')}: {s.headerNames.join(', ')}</div>}</td>
+              <td>{s.name}{s.headerNames.length > 0 && <div className="muted small">{t('Header')}: {s.headerNames.join(', ')}</div>}{s.oauth && <div className="muted small">OAuth 2.0: {s.oauth.clientId}</div>}</td>
               <td className="mono small">{s.url}</td>
               <td>{s.transport}</td>
               <td>
@@ -74,8 +75,20 @@ export function McpSettings() {
             <option value="streamable-http">Streamable HTTP</option><option value="sse">{t('SSE (alt)')}</option>
           </select>
         </label>
-        <label>{t('Header-Name')}<input value={form.headerName} onChange={(e) => setForm({ ...form, headerName: e.target.value })} /></label>
-        <label>{t('Header-Wert')}<input type="password" value={form.headerValue} onChange={(e) => setForm({ ...form, headerValue: e.target.value })} placeholder="Bearer …" /></label>
+        <label>{t('Anmeldung')}
+          <select value={form.auth} onChange={(e) => setForm({ ...form, auth: e.target.value as 'header' | 'oauth' })}>
+            <option value="header">{t('Header / Token')}</option><option value="oauth">OAuth 2.0</option>
+          </select>
+        </label>
+        {form.auth === 'header' ? (<>
+          <label>{t('Header-Name')}<input value={form.headerName} onChange={(e) => setForm({ ...form, headerName: e.target.value })} /></label>
+          <label>{t('Header-Wert')}<input type="password" value={form.headerValue} onChange={(e) => setForm({ ...form, headerValue: e.target.value })} placeholder="Bearer …" /></label>
+        </>) : (<>
+          <label>{t('Token-URL')}<input required type="url" value={form.tokenUrl} onChange={(e) => setForm({ ...form, tokenUrl: e.target.value })} placeholder="https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token" /></label>
+          <label>Client ID<input required value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} /></label>
+          <label>{t('Client-Secret')}<input required type="password" value={form.clientSecret} onChange={(e) => setForm({ ...form, clientSecret: e.target.value })} /></label>
+          <label>Scope<input value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })} placeholder="api://<app-id>/.default" /></label>
+        </>)}
         <div><button type="submit" className="primary">{t('Hinzufügen')}</button></div>
       </form>
       {error && <p className="error">{error}</p>}
@@ -92,6 +105,7 @@ function KnowledgeMcp() {
   const [name, setName] = useState('');
   const [days, setDays] = useState('90');
   const [fresh, setFresh] = useState<string | null>(null);
+  const [reveal, setReveal] = useState(false);
   const endpoint = `${location.origin}/mcp`;
   const load = () => api<Tok[]>('/tokens').then(setToks);
   useEffect(() => { load(); }, []);
@@ -99,7 +113,7 @@ function KnowledgeMcp() {
   const create = async (e: FormEvent) => {
     e.preventDefault();
     const r = await api<{ token: string }>('/tokens', { body: { name, expiresInDays: Number(days) } });
-    setFresh(r.token); setName(''); load();
+    setFresh(r.token); setReveal(false); setName(''); load();
   };
 
   const librechat = `mcpServers:
@@ -117,7 +131,7 @@ function KnowledgeMcp() {
     "ai-knowledge": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "${endpoint}", "--header", "Authorization:Bearer \${TOKEN}"],
-      "env": { "TOKEN": "${fresh ?? 'ap_…'}" }
+      "env": { "TOKEN": "${fresh && reveal ? fresh : 'ap_…'}" }
     }
   }
 }`;
@@ -133,7 +147,8 @@ function KnowledgeMcp() {
         <div className="card-box">
           <strong>{t('Neues Token – wird nur jetzt angezeigt:')}</strong>
           <div className="row" style={{ marginTop: 8 }}>
-            <code className="mono" style={{ wordBreak: 'break-all', flex: 1 }}>{fresh}</code>
+            <code className="mono" style={{ wordBreak: 'break-all', flex: 1 }}>{reveal ? fresh : `${fresh.slice(0, 7)}${'•'.repeat(24)}`}</code>
+            <button type="button" className="ghost" onClick={() => setReveal(!reveal)}>{reveal ? t('Verbergen') : t('Anzeigen')}</button>
             <button onClick={() => navigator.clipboard.writeText(fresh)}>{t('Kopieren')}</button>
           </div>
         </div>

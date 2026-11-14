@@ -71,10 +71,62 @@ describe('McpSettings', () => {
     await type(form.querySelector('select')!, '30');
     await submit(form);
     expect(api).toHaveBeenCalledWith('/tokens', { body: { name: 'Claude Desktop', expiresInDays: 30 } });
+    // the new token is masked until revealed, also in the setup snippet
+    expect(dom.$('.card-box').textContent).not.toContain('ap_new_secret');
+    expect(dom.$('.card-box').textContent).toContain('••••');
+    expect(dom.$$('pre.snippet')[1].textContent).not.toContain('ap_new_secret');
+    await click(dom.$$<HTMLButtonElement>('.card-box button').find((b) => b.textContent === 'Anzeigen')!);
     expect(dom.$('.card-box').textContent).toContain('ap_new_secret');
     expect(dom.$$('pre.snippet')[1].textContent).toContain('"TOKEN": "ap_new_secret"');
 
     await click(tokenRow.querySelector<HTMLButtonElement>('button')!);
     expect(api).toHaveBeenCalledWith('/tokens/t1', { method: 'DELETE' });
+  });
+});
+
+describe('McpSettings: OAuth client credentials', () => {
+  const label = (form: HTMLFormElement, text: string) => [...form.querySelectorAll('label')].find((l) => l.textContent?.trim().startsWith(text))!.querySelector('input, select')! as HTMLInputElement;
+
+  it('shows OAuth servers with their client id and creates one without sending a header', async () => {
+    backend({ servers: [{ ...srv, id: 's3', name: 'PG', headerNames: [], oauth: { tokenUrl: 'https://idp.acme.example/token', clientId: 'portal-pg', scope: 'openid' } }], tokens: [] });
+    await dom.render(<McpSettings />);
+    expect(dom.$$('tbody')[0].textContent).toContain('OAuth 2.0: portal-pg');
+    expect(dom.$$('tbody')[0].textContent).not.toContain('Header:');
+
+    const form = dom.$$<HTMLFormElement>('form')[0];
+    expect(form.textContent).not.toContain('Token-URL'); // header login is the default
+    await type(label(form, 'Anmeldung'), 'oauth');
+    expect(form.textContent).not.toContain('Header-Wert');
+    await type(label(form, 'Name'), 'Oracle');
+    await type(label(form, 'URL'), 'https://oracle-mcp.acme.example/mcp');
+    await type(label(form, 'Token-URL'), 'https://idp.acme.example/token');
+    await type(label(form, 'Client ID'), 'portal-ora');
+    expect(label(form, 'Client-Secret').type).toBe('password');
+    await type(label(form, 'Client-Secret'), 's3cret');
+    await type(label(form, 'Scope'), 'api://ora/.default');
+    await submit(form);
+    expect(api).toHaveBeenCalledWith('/mcp-servers', {
+      body: {
+        name: 'Oracle', url: 'https://oracle-mcp.acme.example/mcp', transport: 'streamable-http', headers: undefined,
+        oauth: { tokenUrl: 'https://idp.acme.example/token', clientId: 'portal-ora', clientSecret: 's3cret', scope: 'api://ora/.default' },
+      },
+    });
+  });
+
+  it('a header value typed before switching to OAuth is not sent', async () => {
+    backend({ servers: [], tokens: [] });
+    await dom.render(<McpSettings />);
+    const form = dom.$$<HTMLFormElement>('form')[0];
+    await type(label(form, 'Header-Wert'), 'Bearer leaked');
+    await type(label(form, 'Anmeldung'), 'oauth');
+    await type(label(form, 'Name'), 'X');
+    await type(label(form, 'URL'), 'https://x.acme.example/mcp');
+    await type(label(form, 'Token-URL'), 'https://idp.acme.example/token');
+    await type(label(form, 'Client ID'), 'c');
+    await type(label(form, 'Client-Secret'), 's');
+    await submit(form);
+    const body = api.mock.calls.find(([p, init]) => p === '/mcp-servers' && init?.body)![1].body;
+    expect(body.headers).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('leaked');
   });
 });

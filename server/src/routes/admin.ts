@@ -4,9 +4,13 @@ import { z } from 'zod';
 import { db } from '../db/index.js';
 import { auditLog, models, providers, users } from '../db/schema.js';
 import { audit } from '../audit.js';
+import { commentField } from '../comment.js';
+import { redactDeep } from '../redact.js';
 import { encryptJson } from '../crypto.js';
 import { hashPassword } from '../auth/local.js';
 import { MODEL_PRESETS } from '../ai/providers.js';
+import { envAssignments, loadAssignments, saveAssignments } from '../auth/oidcAssignments.js';
+import { config } from '../config.js';
 import { bedrockAuth, listAvailableModels } from '../ai/bedrock.js';
 
 export const adminRouter = Router();
@@ -16,7 +20,7 @@ const bad = (res: import('express').Response, e: z.ZodError) => res.status(400).
 /* ---------------- Users ---------------- */
 
 const publicUser = {
-  id: users.id, username: users.username, displayName: users.displayName, email: users.email,
+  id: users.id, username: users.username, displayName: users.displayName, email: users.email, comment: users.comment,
   authSource: users.authSource, role: users.role, groups: users.groups, active: users.active, pendingApproval: users.pendingApproval, createdAt: users.createdAt, lastLoginAt: users.lastLoginAt,
 };
 
@@ -30,6 +34,7 @@ const newUser = z.object({
   displayName: z.string().max(200).optional(),
   email: z.string().email().optional().or(z.literal('')),
   role: z.enum(['admin', 'user']).default('user'),
+  comment: commentField,
 });
 
 adminRouter.post('/users', async (req, res) => {
@@ -38,7 +43,7 @@ adminRouter.post('/users', async (req, res) => {
   const d = p.data;
   const [u] = await db.insert(users).values({
     username: d.username.toLowerCase(), displayName: d.displayName || null, email: d.email || null,
-    role: d.role, authSource: 'local', passwordHash: await hashPassword(d.password),
+    role: d.role, authSource: 'local', passwordHash: await hashPassword(d.password), comment: d.comment,
   }).onConflictDoNothing().returning(publicUser);
   if (!u) return res.status(409).json({ error: 'Benutzername existiert bereits' });
   await audit(req, { action: 'user.create', targetType: 'user', targetId: u.id, details: { username: u.username, role: u.role } });
@@ -49,6 +54,7 @@ const patchUser = z.object({
   role: z.enum(['admin', 'user']).optional(),
   active: z.boolean().optional(),
   displayName: z.string().max(200).optional(),
+  comment: commentField,
   password: z.string().min(12).max(200).optional(),
   /** Only meaningful for local users – LDAP/OIDC groups are overwritten at each login. */
   groups: z.array(z.string().min(1).max(200)).max(200).optional(),
@@ -83,7 +89,7 @@ adminRouter.delete('/users/:id', async (req, res) => {
 
 const providerPublic = {
   id: providers.id, name: providers.name, type: providers.type, baseUrl: providers.baseUrl, region: providers.region,
-  options: providers.options, enabled: providers.enabled, createdAt: providers.createdAt,
+  options: providers.options, enabled: providers.enabled, comment: providers.comment, createdAt: providers.createdAt,
   hasSecret: sql<boolean>`${providers.secretEnc} is not null`,
 };
 
@@ -100,6 +106,7 @@ const providerBody = z.object({
     'Ungültige Bedrock-Optionen (auth: keys, apiKey oder iam; roleArn: arn:aws:iam::<Konto>:role/<Name>)',
   ).optional(),
   enabled: z.boolean().optional(),
+  comment: commentField,
   /** Write-only. Omit to keep the stored secret. */
   secret: z.object({
     apiKey: z.string().optional(),
@@ -173,6 +180,7 @@ const modelBody = z.object({
   enabled: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   sort: z.number().int().optional(),
+  comment: commentField,
 });
 
 adminRouter.get('/models', async (_req, res) => {
@@ -235,10 +243,36 @@ adminRouter.get('/audit', async (req, res) => {
     await audit(req, { action: 'audit.export', details: { filter: { ...q, format: undefined }, rows: rows.length } });
     const esc = (v: unknown) => `"${String(v ?? '').replaceAll('"', '""')}"`;
     const header = 'ts,username,action,target_type,target_id,success,ip,details';
-    const lines = rows.map((r) => [r.ts.toISOString(), r.username, r.action, r.targetType, r.targetId, r.success, r.ip, JSON.stringify(r.details ?? {})].map(esc).join(','));
+    const lines = rows.map((r) => [r.ts.toISOString(), r.username, r.action, r.targetType, r.targetId, r.success, r.ip, JSON.stringify(redactDeep(r.details ?? {}))].map(esc).join(','));
     res.setHeader('content-type', 'text/csv; charset=utf-8');
     res.setHeader('content-disposition', `attachment; filename="audit-${new Date().toISOString().slice(0, 10)}.csv"`);
     return res.send([header, ...lines].join('\n'));
   }
-  res.json(rows);
+  res.json(rows.map((r) => ({ ...r, details: redactDeep(r.details) }))); // also masks entries written before masking existed
+});
+
+/* ---------------- SSO assignments ---------------- */
+
+const assignmentList = z.object({
+  assignments: z.array(z.object({
+    type: z.enum(['group', 'user']),
+    value: z.string().trim().min(1).max(300),
+    admin: z.boolean(),
+    /** Why this entry exists (admin note). */
+    comment: z.string().trim().max(200).optional().transform((v) => v || undefined),
+  })).max(200),
+});
+
+adminRouter.get('/sso/assignments', async (_req, res) => {
+  res.json({ enabled: config.OIDC_ENABLED, env: envAssignments(), assignments: await loadAssignments() });
+});
+
+adminRouter.put('/sso/assignments', async (req, res) => {
+  const p = assignmentList.safeParse(req.body);
+  if (!p.success) return bad(res, p.error);
+  const seen = new Set<string>();
+  const list = p.data.assignments.filter((a) => { const k = `${a.type}:${a.value.toLowerCase()}`; return !seen.has(k) && !!seen.add(k); });
+  await saveAssignments(list);
+  await audit(req, { action: 'sso.assignments', details: { count: list.length, admins: list.filter((a) => a.admin).length, entries: list } });
+  res.json({ enabled: config.OIDC_ENABLED, env: envAssignments(), assignments: list });
 });

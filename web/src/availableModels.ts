@@ -24,6 +24,7 @@ export function useAvailable(providerId: string) {
     api<Available>(`/admin/providers/${providerId}/available-models${refresh ? '?refresh=1' : ''}`)
       .then(setAv).catch((e) => setAv({ source: 'presets', models: [], error: (e as Error).message })).finally(() => setLoading(false));
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when another provider is selected
   useEffect(() => { load(); }, [providerId]);
   return { av, loading, reload: () => load(true) };
 }

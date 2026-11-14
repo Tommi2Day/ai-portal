@@ -31,6 +31,7 @@ export function App() {
     const refresh = () => { void loadPlugins(); };
     window.addEventListener('focus', refresh);
     return () => window.removeEventListener('focus', refresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-run only when the signed-in user changes, not on every profile update
   }, [me?.id]);
   useEffect(() => {
     if (view.startsWith('plugin:') && !plugins.some((p) => p.id === view.slice(7))) setView('chat');

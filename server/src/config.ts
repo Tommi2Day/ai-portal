@@ -59,6 +59,24 @@ const schema = z.object({
   /** Claim with group names used for knowledge-base access (Azure: configure "groups" claim, or use app roles). */
   OIDC_GROUP_CLAIM: z.string().default('groups'),
   OIDC_USER_VALUE: z.string().optional(), // if set, required to log in
+  /** Comma separated groups / e-mails (`*@example.com`, or object id) that may sign in; with either set, everyone else is denied. Admins are always allowed. */
+  OIDC_ALLOWED_GROUPS: z.string().optional(),
+  OIDC_ALLOWED_USERS: z.string().optional(),
+  /** Same format: these become portal admins (in addition to OIDC_ADMIN_VALUE); the role is synced on every sign-in. */
+  OIDC_ADMIN_GROUPS: z.string().optional(),
+  OIDC_ADMIN_USERS: z.string().optional(),
+  /** true: only trust an e-mail the provider marks email_verified (an e-mail marked false is always ignored). Leave off for Entra. */
+  OIDC_REQUIRE_VERIFIED_EMAIL: bool,
+
+  // OAuth 2.0 access tokens on the knowledge MCP endpoint /mcp (resource server; the IdP issues the tokens)
+  MCP_OAUTH_ISSUER: z.string().optional(), // enables OAuth on /mcp; <issuer>/.well-known/openid-configuration must exist
+  /** Accepted "aud" values, comma separated (default: OIDC_CLIENT_ID), e.g. api://<app-id> */
+  MCP_OAUTH_AUDIENCE: z.string().optional(),
+  /** Scopes advertised to MCP clients (space/comma separated). Default <audience>/.default (Entra). */
+  MCP_OAUTH_RESOURCE_SCOPES: z.string().optional(),
+  /** Accepted "iss" values, comma separated (default: MCP_OAUTH_ISSUER), e.g. Entra v1 tokens https://sts.windows.net/<tenant>/ */
+  MCP_OAUTH_ALLOWED_ISSUERS: z.string().optional(),
+  MCP_OAUTH_JWKS_URI: z.string().optional(), // override the discovery document
 
   // AWS Bedrock with an IAM role: lifetime of the self-renewing short-term API keys (max. 12 h)
   BEDROCK_TOKEN_TTL_SECONDS: z.coerce.number().int().min(300).max(43200).default(3600),

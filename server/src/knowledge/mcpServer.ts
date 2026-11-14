@@ -8,19 +8,33 @@ import { db } from '../db/index.js';
 import { apiTokens, knowledgeDocuments, users } from '../db/schema.js';
 import { audit } from '../audit.js';
 import { toSessionUser } from '../auth/session.js';
+import { metadataUrl, oauthEnabled, userForClaims, verifyAccessToken } from './mcpOauth.js';
 import { hashToken } from '../routes/tokens.js';
 import { collectionStats } from './store.js';
 import { accessibleCollections, documentMeta, hybridSearch, metaForTool, publishedArticleDocument } from './search.js';
 
-/** Bearer personal access token -> req.user. Session cookies are deliberately NOT accepted on /mcp. */
+/**
+ * Bearer personal access token (ap_…) or, if MCP_OAUTH_ISSUER is set, an OAuth 2.0 access token -> req.user.
+ * Session cookies are deliberately NOT accepted on /mcp.
+ */
 export async function mcpAuth(req: Request, res: Response, next: NextFunction) {
-  const m = /^Bearer\s+(ap_[\w-]+)$/.exec(req.get('authorization') ?? '');
+  const bearer = /^Bearer\s+(\S+)$/.exec(req.get('authorization') ?? '')?.[1];
   const deny = async (reason: string) => {
     await audit(req, { action: 'token.auth_failed', success: false, details: { reason } });
-    res.status(401).set('www-authenticate', 'Bearer realm="ai-portal"').json({ error: 'Gültiges Zugriffstoken erforderlich' });
+    const challenge = oauthEnabled() ? `Bearer realm="ai-portal", resource_metadata="${metadataUrl()}"` : 'Bearer realm="ai-portal"';
+    res.status(401).set('www-authenticate', challenge).json({ error: 'Gültiges Zugriffstoken erforderlich' });
   };
-  if (!m) return deny('no token');
-  const [row] = await db.select().from(apiTokens).innerJoin(users, eq(apiTokens.userId, users.id)).where(eq(apiTokens.tokenHash, hashToken(m[1])));
+  if (!bearer) return deny('no token');
+  if (!/^ap_[\w-]+$/.test(bearer)) {
+    if (!oauthEnabled()) return deny('no token');
+    try {
+      req.user = await userForClaims(await verifyAccessToken(bearer));
+    } catch (e) {
+      return deny(`oauth: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return next();
+  }
+  const [row] = await db.select().from(apiTokens).innerJoin(users, eq(apiTokens.userId, users.id)).where(eq(apiTokens.tokenHash, hashToken(bearer)));
   if (!row) return deny('unknown token');
   if (row.api_tokens.expiresAt && row.api_tokens.expiresAt < new Date()) return deny('token expired');
   if (!row.users.active) return deny('user deactivated');

@@ -2,6 +2,7 @@ import type { Request } from 'express';
 import { db } from './db/index.js';
 import { auditLog } from './db/schema.js';
 import { logger } from './logger.js';
+import { redactDeep } from './redact.js';
 import { tr } from './i18n.js';
 
 /** Audit entries are always written in English, independent of the UI language. */
@@ -16,7 +17,7 @@ export function englishDetails(d?: Record<string, unknown> | null) {
 export type AuditAction =
   | 'auth.login' | 'auth.logout' | 'auth.login_failed'
   | 'auth.register' | 'auth.profile'
-  | 'user.create' | 'user.update' | 'user.delete'
+  | 'user.create' | 'user.update' | 'user.delete' | 'sso.assignments'
   | 'provider.create' | 'provider.update' | 'provider.delete'
   | 'model.create' | 'model.update' | 'model.delete'
   | 'mcp.create' | 'mcp.update' | 'mcp.delete' | 'mcp.test' | 'mcp.tool_call'
@@ -24,7 +25,7 @@ export type AuditAction =
   | 'file.upload' | 'file.download' | 'file.delete'
   | 'audit.export'
   | 'knowledge.settings' | 'knowledge.collection.create' | 'knowledge.collection.update' | 'knowledge.collection.delete'
-  | 'knowledge.source.create' | 'knowledge.source.update' | 'knowledge.source.delete'
+  | 'knowledge.source.create' | 'knowledge.source.update' | 'knowledge.source.delete' | 'knowledge.source.trigger_token' | 'knowledge.trigger_failed'
   | 'knowledge.sync' | 'knowledge.upload' | 'knowledge.document.delete' | 'knowledge.document.open' | 'knowledge.search' | 'knowledge.document.read'
   | 'knowledge.article.submit' | 'knowledge.article.approve' | 'knowledge.article.reject'
   | 'token.create' | 'token.delete' | 'token.auth_failed'
@@ -55,7 +56,7 @@ export async function audit(req: Request | null, e: AuditEntry) {
     success: e.success ?? true,
     ip: req ? (req.ip ?? null) : null,
     userAgent: req?.get('user-agent')?.slice(0, 300) ?? null,
-    details: englishDetails(e.details),
+    details: redactDeep(englishDetails(e.details)) as Record<string, unknown> | undefined,
   };
   logger.info({ audit: true, ...row }, `audit ${e.action}`);
   try {

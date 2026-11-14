@@ -214,7 +214,7 @@ function MessageView({ m, attNames, streaming }: { m: Message; attNames: Record<
     <div className="msg assistant">
       {parts.map((p, i) => <PartView key={i} p={p} />)}
       {streaming && parts.length === 0 && <div className="typing">…</div>}
-      {m.usage?.outputTokens != null && <div className="meta">{m.usage.inputTokens} → {m.usage.outputTokens} {t('Tokens')}</div>}
+      {typeof m.usage?.outputTokens === 'number' && <div className="meta">{m.usage.inputTokens} → {m.usage.outputTokens} {t('Tokens')}</div>}
       {!streaming && parts.length > 0 && (
         <button type="button" className="ghost small" onClick={() => navigator.clipboard.writeText(answerText(parts))}>{t('Kopieren')}</button>
       )}

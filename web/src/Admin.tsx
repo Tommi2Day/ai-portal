@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, type Me } from './api';
 import { Knowledge } from './Knowledge';
+import { CommentCell } from './CommentCell';
+import { SecretButton } from './SecretButton';
 import { availableLabel, useAvailable } from './availableModels';
 import { locale, t } from './i18n';
 
-type Tab = 'users' | 'providers' | 'knowledge' | 'audit' | 'plugins';
+type Tab = 'users' | 'providers' | 'knowledge' | 'audit' | 'plugins' | 'sso';
 
 export function Admin({ me, onPluginsChanged }: { me: Me; onPluginsChanged?: () => void }) {
   const [tab, setTab] = useState<Tab>('providers');
@@ -15,12 +17,14 @@ export function Admin({ me, onPluginsChanged }: { me: Me; onPluginsChanged?: () 
         <button className={tab === 'knowledge' ? 'active' : ''} onClick={() => setTab('knowledge')}>{t('Wissensdatenbank')}</button>
         <button className={tab === 'plugins' ? 'active' : ''} onClick={() => setTab('plugins')}>{t('Plugins')}</button>
         <button className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}>{t('Benutzer')}</button>
+        <button className={tab === 'sso' ? 'active' : ''} onClick={() => setTab('sso')}>{t('Single Sign-On')}</button>
         <button className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}>{t('Audit-Log')}</button>
       </div>
       {tab === 'users' && <Users me={me} />}
       {tab === 'providers' && <Providers />}
       {tab === 'knowledge' && <Knowledge />}
       {tab === 'plugins' && <Plugins onChanged={onPluginsChanged} />}
+      {tab === 'sso' && <Sso />}
       {tab === 'audit' && <Audit />}
     </div>
   );
@@ -59,7 +63,7 @@ function Plugins({ onChanged }: { onChanged?: () => void }) {
 }
 
 /* ---------------- Users ---------------- */
-interface U { id: string; username: string; displayName: string | null; email: string | null; authSource: string; role: 'admin' | 'user'; groups: string[]; active: boolean; pendingApproval?: boolean; lastLoginAt: string | null }
+interface U { id: string; username: string; comment: string | null; displayName: string | null; email: string | null; authSource: string; role: 'admin' | 'user'; groups: string[]; active: boolean; pendingApproval?: boolean; lastLoginAt: string | null }
 
 function Users({ me }: { me: Me }) {
   const [list, setList] = useState<U[]>([]);
@@ -81,7 +85,7 @@ function Users({ me }: { me: Me }) {
     <>
       <p className="muted">{t('LDAP- und SSO-Benutzer werden bei der ersten Anmeldung automatisch angelegt.')}</p>
       <table>
-        <thead><tr><th>{t('Benutzer')}</th><th>{t('Quelle')}</th><th>{t('Gruppen')}</th><th>{t('Rolle')}</th><th>{t('Aktiv')}</th><th>{t('Letzte Anmeldung')}</th><th /></tr></thead>
+        <thead><tr><th>{t('Benutzer')}</th><th>{t('Quelle')}</th><th>{t('Gruppen')}</th><th>{t('Rolle')}</th><th>{t('Aktiv')}</th><th>{t('Letzte Anmeldung')}</th><th>{t('Kommentar')}</th><th /></tr></thead>
         <tbody>
           {list.map((u) => (
             <tr key={u.id}>
@@ -98,8 +102,9 @@ function Users({ me }: { me: Me }) {
               </td>
               <td><input type="checkbox" checked={u.active} disabled={u.id === me.id} onChange={(e) => patch(u.id, { active: e.target.checked })} /></td>
               <td className="small">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString(locale()) : '–'}</td>
+              <td><CommentCell value={u.comment} onSave={(v) => patch(u.id, { comment: v })} /></td>
               <td className="actions">
-                {u.authSource === 'local' && <button className="ghost" onClick={() => { const p = prompt(t('Neues Passwort (min. 12 Zeichen)')); if (p) patch(u.id, { password: p }); }}>{t('Passwort')}</button>}
+                {u.authSource === 'local' && <SecretButton className="ghost" label={t('Passwort')} placeholder={t('Neues Passwort (min. 12 Zeichen)')} minLength={12} onSubmit={(pw) => patch(u.id, { password: pw })} />}
                 {u.id !== me.id && <button className="ghost" onClick={async () => { if (confirm(t('{name} löschen?', { name: u.username }))) { await api(`/admin/users/${u.id}`, { method: 'DELETE' }); load(); } }}>{t('Löschen')}</button>}
               </td>
             </tr>
@@ -121,8 +126,8 @@ function Users({ me }: { me: Me }) {
 
 /* ---------------- Providers & models ---------------- */
 type PType = 'anthropic' | 'bedrock' | 'github' | 'openai_compatible';
-interface P { id: string; name: string; type: PType; baseUrl: string | null; region: string | null; options: Record<string, string>; enabled: boolean; hasSecret: boolean }
-interface M { id: string; providerId: string; modelId: string; displayName: string; description: string | null; supportsImages: boolean; enabled: boolean; isDefault: boolean; sort: number }
+interface P { id: string; name: string; comment: string | null; type: PType; baseUrl: string | null; region: string | null; options: Record<string, string>; enabled: boolean; hasSecret: boolean }
+interface M { id: string; comment: string | null; providerId: string; modelId: string; displayName: string; description: string | null; supportsImages: boolean; enabled: boolean; isDefault: boolean; sort: number }
 
 const TYPE_LABEL: Record<PType, string> = { anthropic: 'Anthropic Claude', bedrock: 'AWS Bedrock', github: 'GitHub Models / Enterprise', openai_compatible: 'OpenAI-kompatibel' };
 type BAuth = 'iam' | 'keys' | 'apiKey';
@@ -190,7 +195,7 @@ function Providers() {
     <>
       <h3>{t('KI-Anbieter')}</h3>
       <table>
-        <thead><tr><th>{t('Name')}</th><th>{t('Typ')}</th><th>{t('Endpunkt / Region')}</th><th>{t('Schlüssel')}</th><th>{t('Aktiv')}</th><th /></tr></thead>
+        <thead><tr><th>{t('Name')}</th><th>{t('Typ')}</th><th>{t('Endpunkt / Region')}</th><th>{t('Schlüssel')}</th><th>{t('Aktiv')}</th><th>{t('Kommentar')}</th><th /></tr></thead>
         <tbody>
           {ps.map((p) => (
             <tr key={p.id}>
@@ -198,9 +203,10 @@ function Providers() {
               <td className="small mono">{providerTarget(p)}</td>
               <td>{providerKey(p)}</td>
               <td><input type="checkbox" checked={p.enabled} onChange={async (e) => { await api(`/admin/providers/${p.id}`, { method: 'PATCH', body: { enabled: e.target.checked } }); load(); }} /></td>
+              <td><CommentCell value={p.comment} onSave={async (v) => { await api(`/admin/providers/${p.id}`, { method: 'PATCH', body: { comment: v } }); load(); }} /></td>
               <td className="actions">
                 {!usesIamRole(p) && (
-                  <button className="ghost" onClick={async () => { const k = prompt(t('Neuer API-Schlüssel')); if (k) { await api(`/admin/providers/${p.id}`, { method: 'PATCH', body: { secret: { apiKey: k }, ...(p.type === 'bedrock' ? { options: { ...p.options, auth: 'apiKey' } } : {}) } }); load(); } }}>{t('Schlüssel')}</button>
+                  <SecretButton className="ghost" label={t('Schlüssel')} placeholder={t('Neuer API-Schlüssel')} onSubmit={async (k) => { await api(`/admin/providers/${p.id}`, { method: 'PATCH', body: { secret: { apiKey: k }, ...(p.type === 'bedrock' ? { options: { ...p.options, auth: 'apiKey' } } : {}) } }); load(); }} />
                 )}
                 <button className="ghost" onClick={async () => { if (confirm(t('Anbieter samt Modellen löschen?'))) { await api(`/admin/providers/${p.id}`, { method: 'DELETE' }); load(); } }}>{t('Löschen')}</button>
               </td>
@@ -246,7 +252,7 @@ function Providers() {
 
       <h3>{t('Modellauswahl für Benutzer')}</h3>
       <table>
-        <thead><tr><th>{t('Anzeigename')}</th><th>{t('Modell-ID')}</th><th>{t('Anbieter')}</th><th>{t('Bilder')}</th><th>{t('Standard')}</th><th>{t('Aktiv')}</th><th /></tr></thead>
+        <thead><tr><th>{t('Anzeigename')}</th><th>{t('Modell-ID')}</th><th>{t('Anbieter')}</th><th>{t('Bilder')}</th><th>{t('Standard')}</th><th>{t('Aktiv')}</th><th>{t('Kommentar')}</th><th /></tr></thead>
         <tbody>
           {ms.map((m) => (
             <tr key={m.id}>
@@ -255,6 +261,7 @@ function Providers() {
               <td>{m.supportsImages ? '✓' : ''}</td>
               <td><input type="radio" checked={m.isDefault} onChange={() => patchModel(m.id, { isDefault: true })} /></td>
               <td><input type="checkbox" checked={m.enabled} onChange={(e) => patchModel(m.id, { enabled: e.target.checked })} /></td>
+              <td><CommentCell value={m.comment} onSave={(v) => patchModel(m.id, { comment: v })} /></td>
               <td className="actions"><button className="ghost" onClick={async () => { await api(`/admin/models/${m.id}`, { method: 'DELETE' }); load(); }}>{t('Löschen')}</button></td>
             </tr>
           ))}
@@ -307,6 +314,7 @@ function Audit() {
   const [q, setQ] = useState({ user: '', action: '', from: '', to: '' });
   const qs = () => new URLSearchParams(Object.entries(q).filter(([, v]) => v)).toString();
   const load = () => api<A[]>(`/admin/audit?${qs()}`).then(setRows);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- load the audit log once; filters are applied with the form
   useEffect(() => { load(); }, []);
 
   return (
@@ -333,6 +341,69 @@ function Audit() {
           ))}
         </tbody>
       </table>
+    </>
+  );
+}
+
+/* ---------------- SSO assignments ---------------- */
+interface Assignment { type: 'group' | 'user'; value: string; admin: boolean; comment?: string }
+interface SsoState { enabled: boolean; env: Assignment[]; assignments: Assignment[] }
+
+function Sso() {
+  const [st, setSt] = useState<SsoState | null>(null);
+  const [f, setF] = useState<Assignment>({ type: 'group', value: '', admin: false });
+  const [error, setError] = useState('');
+  useEffect(() => { api<SsoState>('/admin/sso/assignments').then(setSt); }, []);
+
+  const save = async (assignments: Assignment[]) => {
+    setError('');
+    try { setSt(await api<SsoState>('/admin/sso/assignments', { method: 'PUT', body: { assignments } })); return true; }
+    catch (err) { setError((err as Error).message); return false; }
+  };
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    if (st && await save([...st.assignments, { ...f, value: f.value.trim(), comment: f.comment?.trim() || undefined }])) setF({ ...f, value: '', comment: '' });
+  };
+  if (!st) return null;
+
+  const row = (a: Assignment, key: string, edit?: { onDelete: () => void; onComment: (v: string) => void }) => (
+    <tr key={key}>
+      <td>{a.type === 'group' ? t('Gruppe') : t('Benutzer')}</td>
+      <td className="mono small">{a.value}</td>
+      <td>{a.admin ? t('Admin') : t('Zugriff')}</td>
+      <td>{edit ? <CommentCell value={a.comment} max={200} onSave={edit.onComment} /> : <span className="muted">–</span>}</td>
+      <td className="actions">{edit ? <button className="ghost" onClick={edit.onDelete}>{t('Löschen')}</button> : <span className="muted small">{t('Umgebung')}</span>}</td>
+    </tr>
+  );
+
+  return (
+    <>
+      <p className="muted">{t('Zuweisungen für die SSO-Anmeldung: Gruppen (Name oder Objekt-ID) oder Benutzer (E-Mail, *@domain oder Objekt-ID). Admin-Zuweisungen vergeben die Admin-Rolle bei jeder Anmeldung. Sobald es eine Zuweisung ohne Admin gibt, dürfen sich nur noch passende Benutzer und Admins per SSO anmelden.')}</p>
+      {!st.enabled && <p className="error">{t('SSO ist nicht aktiviert (OIDC_ENABLED).')}</p>}
+      <table>
+        <thead><tr><th>{t('Typ')}</th><th>{t('Wert')}</th><th>{t('Rolle')}</th><th>{t('Kommentar')}</th><th /></tr></thead>
+        <tbody>
+          {st.env.map((a, i) => row(a, `env${i}`))}
+          {st.assignments.map((a, i) => row(a, `db${i}`, {
+            onDelete: () => { if (confirm(t('Löschen?'))) void save(st.assignments.filter((_, j) => j !== i)); },
+            onComment: (v) => { void save(st.assignments.map((x, j) => (j === i ? { ...x, comment: v || undefined } : x))); },
+          }))}
+          {st.env.length + st.assignments.length === 0 && <tr><td colSpan={5} className="muted">{t('Keine Zuweisungen – alle SSO-Benutzer dürfen sich anmelden.')}</td></tr>}
+        </tbody>
+      </table>
+      <h3>{t('Zuweisung hinzufügen')}</h3>
+      <form className="grid-form" onSubmit={add}>
+        <label>{t('Typ')}
+          <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value as Assignment['type'] })}>
+            <option value="group">{t('Gruppe')}</option><option value="user">{t('Benutzer')}</option>
+          </select>
+        </label>
+        <label>{t('Wert')}<input required value={f.value} onChange={(e) => setF({ ...f, value: e.target.value })} placeholder={f.type === 'group' ? 'AiPortal-Admins' : 'alice@example.com'} /></label>
+        <label className="toggle"><input type="checkbox" checked={f.admin} onChange={(e) => setF({ ...f, admin: e.target.checked })} /> {t('Admin')}</label>
+        <label>{t('Kommentar')}<input maxLength={200} value={f.comment ?? ''} onChange={(e) => setF({ ...f, comment: e.target.value })} placeholder={t('optional')} /></label>
+        <div><button type="submit" className="primary">{t('Hinzufügen')}</button></div>
+      </form>
+      {error && <p className="error">{error}</p>}
     </>
   );
 }

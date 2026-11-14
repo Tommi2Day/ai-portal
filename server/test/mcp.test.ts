@@ -85,3 +85,49 @@ describe('openMcpSession', () => {
     expect(calls[0]).toMatchObject({ ok: false, error: 'Error: tool failed' });
   });
 });
+
+describe('OAuth client credentials', () => {
+  it('fetches a token, caches it and sends it as Bearer (replacing a static Authorization header)', async () => {
+    const calls: { url: string; body: string }[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: { body: URLSearchParams }) => {
+      calls.push({ url, body: String(init.body) });
+      return new Response(JSON.stringify({ access_token: 'tok-1', expires_in: 3600 }), { status: 200 });
+    });
+    sdk.servers['https://mcp.acme.example/oauth'] = { tools: [] };
+    const s = server({
+      url: 'https://mcp.acme.example/oauth',
+      headersEnc: encryptJson({ Authorization: 'Bearer static', 'X-Team': 'it' }),
+      oauthEnc: encryptJson({ tokenUrl: 'https://idp.acme.example/token', clientId: 'cid', clientSecret: 'sec', scope: 'api://x/.default' }),
+    });
+    await openMcpSession([s], () => {});
+    await openMcpSession([s], () => {});
+    expect(sdk.transports[0].opts.requestInit?.headers).toEqual({ Authorization: 'Bearer tok-1', 'X-Team': 'it' });
+    expect(calls).toHaveLength(1);
+    expect(new URLSearchParams(calls[0].body).get('grant_type')).toBe('client_credentials');
+    expect(new URLSearchParams(calls[0].body).get('scope')).toBe('api://x/.default');
+    vi.unstubAllGlobals();
+  });
+
+  it('refuses redirects from the token URL', async () => {
+    let init: { redirect?: string } = {};
+    vi.stubGlobal('fetch', async (_u: string, i: typeof init) => { init = i; return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } }); });
+    const r = await openMcpSession([server({ url: 'https://mcp.acme.example/redir', oauthEnc: encryptJson({ tokenUrl: 'https://idp.acme.example/token2', clientId: 'cid', clientSecret: 's' }) })], () => {});
+    expect(init.redirect).toBe('manual');
+    expect(r.status[0]).toMatchObject({ ok: false, error: expect.stringContaining('Redirects') });
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects an oversized token response', async () => {
+    vi.stubGlobal('fetch', async () => new Response('x'.repeat(200_000), { status: 200 }));
+    const r = await openMcpSession([server({ url: 'https://mcp.acme.example/big', oauthEnc: encryptJson({ tokenUrl: 'https://idp.acme.example/token3', clientId: 'cid', clientSecret: 's' }) })], () => {});
+    expect(r.status[0]).toMatchObject({ ok: false, error: expect.stringContaining('zu groß') });
+    vi.unstubAllGlobals();
+  });
+
+  it('reports token errors as connection status', async () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'invalid_client' }), { status: 401 }));
+    const r = await openMcpSession([server({ url: 'https://mcp.acme.example/bad', oauthEnc: encryptJson({ tokenUrl: 'https://idp.acme.example/token', clientId: 'cid', clientSecret: 'wrong' }) })], () => {});
+    expect(r.status[0]).toMatchObject({ ok: false, error: expect.stringContaining('invalid_client') });
+    vi.unstubAllGlobals();
+  });
+});
