@@ -1,0 +1,8 @@
+# Traefik dynamic configuration: your own certificate for the portal and Keycloak host names.
+# Put tls.crt (full chain) and tls.key into the directory TRAEFIK_CERTS_DIR (default ./certs, git-ignored).
+# Without these files Traefik falls back to its built-in self-signed certificate (or Let's Encrypt, see
+# docker-compose.support.yaml).
+tls:
+  certificates:
+    - certFile: /certs/tls.crt
+      keyFile: /certs/tls.key

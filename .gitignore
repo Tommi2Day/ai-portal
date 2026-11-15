@@ -7,9 +7,12 @@ npm-debug.log*
 
 # local runtime state / secrets
 .env
+.env.*
+!.env.example
 /shares/
 
 # IDE
 .vscode/*
 .idea/workspace.xml
 .idea/shelf/
+/certs/

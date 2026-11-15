@@ -17,6 +17,15 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgres://aiportal:aiportal@db:5432/aiportal
+      # Single sign-on with Keycloak from docker-compose.support.yaml (realm "ai-portal"); active with OIDC_ENABLED=true in .env.
+      # Another provider (Entra ID, ...): set OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET etc. in .env, see .env.example.
+      OIDC_ENABLED: ${OIDC_ENABLED:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${KEYCLOAK_HOST:-auth.localhost}/realms/ai-portal}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-ai-portal}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_DISPLAY_NAME: ${OIDC_DISPLAY_NAME:-Keycloak}
+      OIDC_GROUP_CLAIM: ${OIDC_GROUP_CLAIM:-groups}
+      OIDC_ADMIN_GROUPS: ${OIDC_ADMIN_GROUPS:-ai-portal-admins}
     ports: ["8080:8080"]
     volumes:
       # Dateifreigaben für die Wissensdatenbank (read-only), z. B. per SMB/NFS auf dem Host gemountet
@@ -25,6 +34,22 @@ services:
       - ${BRANDING_DIR:-./examples/branding}:/branding:ro
     depends_on:
       db: { condition: service_healthy }
+    # Traefik integration (docker-compose.support.yaml); without Traefik these labels do nothing
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=ai-portal-proxy
+      - traefik.http.services.portal.loadbalancer.server.port=8080
+      # HTTPS
+      - traefik.http.routers.portal.rule=Host(`${PORTAL_HOST:-ai.localhost}`)
+      - traefik.http.routers.portal.entrypoints=websecure
+      - traefik.http.routers.portal.tls=true
+      - traefik.http.routers.portal.tls.certresolver=${TRAEFIK_CERTRESOLVER:-}
+      # HTTP -> HTTPS redirect
+      - traefik.http.routers.portal-http.rule=Host(`${PORTAL_HOST:-ai.localhost}`)
+      - traefik.http.routers.portal-http.entrypoints=web
+      - traefik.http.routers.portal-http.middlewares=portal-https
+      - traefik.http.middlewares.portal-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.portal-https.redirectscheme.permanent=true
 
 volumes:
   pgdata:
