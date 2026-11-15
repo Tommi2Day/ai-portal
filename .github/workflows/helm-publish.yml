@@ -48,7 +48,7 @@ jobs:
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "$GH_TOKEN" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
-          helm push dist/ai-portal-*.tgz "oci://ghcr.io/${owner}/charts"
+          helm push dist/ai-portal-*.tgz "oci://ghcr.io/${owner}/charts" | tee "$RUNNER_TEMP/helm-push.log"
 
       # GitHub has no API to change a package's visibility: make the chart package public once
       # (profile -> Packages -> charts/ai-portal -> Package settings -> Change visibility). This step fails until that is done.
@@ -63,3 +63,18 @@ jobs:
             exit 1
           fi
           echo "chart ${version} is public"
+
+      - name: Job summary
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          version=$(helm show chart dist/ai-portal-*.tgz | awk '/^version:/ {print $2}')
+          {
+            echo "### Helm chart"
+            echo
+            printf 'Chart `ai-portal` %s, pushed and public (verified with an anonymous pull):\n\n' "$version"
+            echo '```'
+            grep -E '^(Pushed|Digest):' "$RUNNER_TEMP/helm-push.log" || true
+            echo '```'
+            echo
+            printf 'Install: `helm install ai-portal oci://ghcr.io/%s/charts/ai-portal --version %s`\n' "$owner" "$version"
+          } >> "$GITHUB_STEP_SUMMARY"

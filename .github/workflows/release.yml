@@ -184,6 +184,7 @@ jobs:
             type=sha,format=short
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -206,6 +207,26 @@ jobs:
             exit 1
           fi
           echo "${GHCR_IMAGE}:${tag} is public"
+
+      - name: Job summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### Container image"
+            echo
+            printf 'Digest: `%s`\n\n' "$DIGEST"
+            echo "| Registry | Reference |"
+            echo "| --- | --- |"
+            while read -r ref; do
+              [ -n "$ref" ] || continue
+              case "$ref" in ghcr.io/*) reg="GitHub Container Registry" ;; *) reg="Docker Hub" ;; esac
+              printf '| %s | `%s` |\n' "$reg" "$ref"
+            done <<< "$TAGS"
+            echo
+            echo "GHCR package is public (verified with an anonymous pull): https://github.com/${GITHUB_REPOSITORY_OWNER}?tab=packages&repo_name=${GITHUB_REPOSITORY#*/}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   helm:
     name: Helm Chart
