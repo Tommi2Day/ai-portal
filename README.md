@@ -66,6 +66,8 @@ server/        Node.js 22 · Express 5 · Drizzle/PostgreSQL · Vercel AI SDK ·
 web/           React 19 · Vite
 deploy/k8s/    Kubernetes manifests (kustomize)
 helm/ai-portal/ Helm chart (published to oci://ghcr.io/tommi2day/charts)
+docker-compose.support.yaml  optional Traefik proxy + Keycloak (config in deploy/traefik, deploy/keycloak)
+scripts/       Keycloak user, group and OIDC application management (admin API)
 docs/          English documentation
 ```
 
@@ -84,6 +86,8 @@ Open http://localhost:8080, sign in as `admin` and go to **Administration**:
 2. **Wissensdatenbank** (knowledge base, optional): choose an embedding model, create a collection, add sources.
 
 Users add their own MCP servers under **MCP-Server**.
+
+**Optional: HTTPS and single sign-on.** `docker compose -f docker-compose.yml -f docker-compose.support.yaml up -d` adds [Traefik](https://traefik.io) (TLS, redirect) and [Keycloak](https://www.keycloak.org) as OIDC provider, both routed through labels, with a ready-made realm; `scripts/keycloak-user.sh` and `scripts/keycloak-oidc.sh` manage users, groups and further OIDC applications. See [Installation](docs/installation.md#docker-compose-with-traefik-and-keycloak).
 
 ## Documentation
 

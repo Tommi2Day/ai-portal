@@ -17,6 +17,8 @@ server/   Node.js 22 · Express 5 · Drizzle/PostgreSQL · Vercel AI SDK · MCP-
 web/      React 19 · Vite
 deploy/   Kubernetes-Manifeste (kustomize)
 helm/     Helm-Chart (veröffentlicht unter oci://ghcr.io/tommi2day/charts)
+scripts/  Keycloak-Verwaltung: Benutzer, Gruppen, OIDC-Anwendungen (Admin-API)
+docker-compose.support.yaml  optional Traefik + Keycloak
 ```
 
 ## Screenshots
@@ -119,22 +121,29 @@ Postgres: vorhandene Datenbank nutzen oder `postgres-cnpg.yaml` (CloudNativePG) 
 Das Chart `helm/ai-portal` wird mit jedem Release nach `oci://ghcr.io/tommi2day/charts` veröffentlicht. `SESSION_SECRET`, `ENCRYPTION_KEY` und das Admin-Passwort werden beim ersten Install erzeugt und bei Upgrades beibehalten (eigenes Secret: `existingSecret`).
 
 ```bash
-helm install ai-portal oci://ghcr.io/tommi2day/charts/ai-portal --version 1.0.0 -n ai-portal --create-namespace   --set config.PUBLIC_URL=https://ai.example.com   --set secret.databaseUrl='postgres://aiportal:...@db:5432/aiportal'   --set ingress.enabled=true --set ingress.hosts[0].host=ai.example.com --set ingress.hosts[0].paths[0].path=/
+helm install ai-portal oci://ghcr.io/tommi2day/charts/ai-portal --version 1.0.0 -n ai-portal --create-namespace \
+  --set config.PUBLIC_URL=https://ai.example.com \
+  --set secret.databaseUrl='postgres://aiportal:...@db:5432/aiportal' \
+  --set ingress.enabled=true --set ingress.hosts[0].host=ai.example.com --set ingress.hosts[0].paths[0].path=/
 # PostgreSQL + pgvector über den CloudNativePG-Operator: --set cnpg.enabled=true
 ```
 
 **Traefik** statt nginx: `--set ingress.enabled=false --set traefik.enabled=true --set traefik.hosts[0]=ai.example.com --set traefik.tls.certResolver=letsencrypt` erzeugt eine `IngressRoute` samt HTTP→HTTPS-Weiterleitung. Alle Optionen: `helm/ai-portal/values.yaml`.
 
-## Docker Compose mit Traefik
+## Docker Compose mit Traefik und Keycloak
+
+`docker-compose.support.yaml` ergänzt Traefik (TLS, HTTP→HTTPS-Weiterleitung, kein veröffentlichter Portal-Port) und Keycloak als OIDC-Provider unter `https://<KEYCLOAK_HOST>`, beide per Labels an Traefik angebunden. Die Labels und OIDC-Einstellungen des Portals stehen in `docker-compose.yml`. Das Realm `ai-portal` wird einmalig aus `deploy/keycloak/ai-portal-realm.json` importiert (Client `ai-portal`, Gruppen `ai-portal-admins` = Portal-Admins und `ai-portal-users`).
 
 ```bash
-# .env: PORTAL_HOST=ai.example.com, PUBLIC_URL=https://ai.example.com, COOKIE_SECURE=true
-docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d
+# .env (git-ignoriert, nie committen)
+#   PORTAL_HOST=ai.example.com          KEYCLOAK_HOST=auth.example.com
+#   PUBLIC_URL=https://ai.example.com   COOKIE_SECURE=true   OIDC_ENABLED=true
+#   KEYCLOAK_ADMIN_PASSWORD=<starkes Passwort>
+#   OIDC_CLIENT_SECRET=<openssl rand -hex 32>
+docker compose -f docker-compose.yml -f docker-compose.support.yaml up -d
 ```
 
-Traefik terminiert TLS und leitet HTTP auf HTTPS um; der Portal-Port 8080 wird nicht mehr veröffentlicht. Für Let's Encrypt zusätzlich `TRAEFIK_ACME_EMAIL` und `TRAEFIK_CERTRESOLVER=le` setzen, sonst nutzt Traefik sein selbstsigniertes Standardzertifikat. Details: [Installation](docs/installation.md).
-
-**ENCRYPTION_KEY sicher aufbewahren** – ohne ihn sind gespeicherte API-Schlüssel und MCP-Zugangsdaten nicht mehr lesbar.
+Benutzer legt man mit `scripts/keycloak-user.sh add <user> <e-mail> --name "Vor Nach" [--admin]` an (erzeugt ein Einmalpasswort; weitere Befehle: `passwd`, `list`, `delete`, `secret` zum Übernehmen von `OIDC_CLIENT_SECRET`) oder unter `https://<KEYCLOAK_HOST>/admin` (Realm `ai-portal`, Anmeldung als `admin`). Gruppen und weitere OIDC-Anwendungen (Clients, auch Service-Accounts mit Client-Credentials) pflegt `scripts/keycloak-oidc.sh`. Zertifikate: Let's Encrypt über `TRAEFIK_ACME_EMAIL` + `TRAEFIK_CERTRESOLVER=le`, oder eigenes Zertifikat (`tls.crt`/`tls.key`, ggf. `ca.crt` + `OIDC_CA_FILE=/certs/ca.crt`) in `./certs` (git-ignoriert). Das Realm enthält nur Platzhalter, Secrets kommen aus `.env`. Details: [Installation](docs/installation.md).
 
 ## Branding
 

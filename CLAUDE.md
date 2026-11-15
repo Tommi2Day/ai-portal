@@ -20,7 +20,7 @@ server/        Node.js 22 · Express 5 · Drizzle ORM/PostgreSQL · Vercel AI SD
   test/            Vitest unit/API tests; test/integration/ real-stack integration tests (separate config)
 web/           React 19 · Vite · TypeScript (no React Router — App.tsx switches views by state)
 deploy/k8s/    Kubernetes manifests (kustomize)
-helm/ai-portal/ Helm chart (values.yaml documents all options); docker-compose.traefik.yml = optional Traefik proxy override
+helm/ai-portal/ Helm chart (values.yaml documents all options); docker-compose.support.yaml = optional Traefik + Keycloak (deploy/traefik, deploy/keycloak; scripts/keycloak-user.sh, keycloak-oidc.sh (groups, OIDC apps) and keycloak-lib.sh manage Keycloak through its admin API)
 docs/          English documentation (README.de.md is the German README)
 ```
 

@@ -25,6 +25,8 @@ After the [installation](installation.md#first-start) sign in with the bootstrap
 
 ## Single sign-on assignments
 
+**Keycloak from the Compose setup:** users, groups and further OIDC applications of the bundled realm are maintained with `scripts/keycloak-user.sh` and `scripts/keycloak-oidc.sh` (see [Installation](installation.md#docker-compose-with-traefik-and-keycloak)); membership of the group `ai-portal-admins` makes a user portal admin on sign-in.
+
 **Tab “Single Sign-On”.** It needs `OIDC_ENABLED=true`; otherwise the tab only shows a warning. It decides who may sign in through the identity provider and who becomes admin, on top of the `OIDC_*` settings ([configuration](configuration.md#oidc-azure-ad--entra-id-keycloak-)).
 
 | Column | Meaning |

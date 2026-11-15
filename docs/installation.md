@@ -55,14 +55,19 @@ Instead of building, use the image from Docker Hub, [`tommi2day/ai-portal`](http
 The chart in `helm/ai-portal` is published to `oci://ghcr.io/tommi2day/charts` with every release. Secrets (`SESSION_SECRET`, `ENCRYPTION_KEY`, admin password) are generated on first install and kept on upgrade; use `existingSecret` to manage them yourself.
 
 ```bash
-helm install ai-portal oci://ghcr.io/tommi2day/charts/ai-portal --version 1.0.0 -n ai-portal --create-namespace   --set config.PUBLIC_URL=https://ai.example.com   --set secret.databaseUrl='postgres://aiportal:…@db:5432/aiportal'   --set ingress.enabled=true --set ingress.hosts[0].host=ai.example.com --set ingress.hosts[0].paths[0].path=/
+helm install ai-portal oci://ghcr.io/tommi2day/charts/ai-portal --version 1.0.0 -n ai-portal --create-namespace \
+  --set config.PUBLIC_URL=https://ai.example.com \
+  --set secret.databaseUrl='postgres://aiportal:…@db:5432/aiportal' \
+  --set ingress.enabled=true --set ingress.hosts[0].host=ai.example.com --set ingress.hosts[0].paths[0].path=/
 # or let the CloudNativePG operator provide PostgreSQL + pgvector: --set cnpg.enabled=true
 ```
 
 To use **Traefik** instead of an nginx ingress, render a Traefik `IngressRoute` (Traefik v3 or v2 with its CRDs installed; set `traefik.apiVersion: traefik.containo.us/v1alpha1` for v2):
 
 ```bash
-helm install ai-portal … --set ingress.enabled=false   --set traefik.enabled=true --set traefik.hosts[0]=ai.example.com   --set traefik.tls.certResolver=letsencrypt      # or traefik.tls.secretName=<tls secret>
+helm install ai-portal … --set ingress.enabled=false \
+  --set traefik.enabled=true --set traefik.hosts[0]=ai.example.com \
+  --set traefik.tls.certResolver=letsencrypt      # or traefik.tls.secretName=<tls secret>
 ```
 
 The route listens on the `websecure` entry point and a second route on `web` redirects to HTTPS (`traefik.redirectHttp`). Traefik neither buffers streaming answers nor limits the body size, so the nginx annotations are not needed. A plain `Ingress` with `ingress.className=traefik` also works.
@@ -97,16 +102,50 @@ kubectl apply -k deploy/k8s
 
 Other ingress controllers need the equivalent of: no response buffering on `/api/chats/*/messages`, read timeout of several minutes, request body ≥ upload limit.
 
-## Docker Compose with Traefik
+## Docker Compose with Traefik and Keycloak
 
-`docker-compose.traefik.yml` puts a [Traefik](https://traefik.io) reverse proxy in front of the portal (TLS termination, HTTP → HTTPS redirect, no published portal port):
+`docker-compose.support.yaml` adds two supporting services, both routed by Traefik through labels (the portal's own labels and its OIDC settings are in `docker-compose.yml`):
+
+- **[Traefik](https://traefik.io)** in front of the portal: TLS termination, HTTP → HTTPS redirect, no published portal port.
+- **[Keycloak](https://www.keycloak.org)** as OIDC provider at `https://<KEYCLOAK_HOST>`, with the realm `ai-portal` imported once from `deploy/keycloak/ai-portal-realm.json`: client `ai-portal` (authorization code + PKCE), groups `ai-portal-admins` (portal admins) and `ai-portal-users`.
 
 ```bash
-# .env: PORTAL_HOST=ai.example.com, PUBLIC_URL=https://ai.example.com, COOKIE_SECURE=true
-docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d
+# .env (git-ignored): never commit it
+#   PORTAL_HOST=ai.example.com            KEYCLOAK_HOST=auth.example.com
+#   PUBLIC_URL=https://ai.example.com     COOKIE_SECURE=true     OIDC_ENABLED=true
+#   KEYCLOAK_ADMIN_PASSWORD=<strong password>
+#   OIDC_CLIENT_SECRET=<openssl rand -hex 32>
+docker compose -f docker-compose.yml -f docker-compose.support.yaml up -d
 ```
 
-For a Let's Encrypt certificate (needs port 80 reachable from the internet) also set `TRAEFIK_ACME_EMAIL` and `TRAEFIK_CERTRESOLVER=le`; without them Traefik serves its built-in self-signed certificate. `TRAEFIK_HTTP_PORT` / `TRAEFIK_HTTPS_PORT` change the host ports (the HTTP → HTTPS redirect then points to port 443, so keep the defaults in production). Needs Docker Compose 2.24 or newer.
+Both host names must resolve to the Docker host. Create users with the helper script (or in `https://<KEYCLOAK_HOST>/admin`) (realm `ai-portal`, sign in as `admin`) and add them to a group; users in `ai-portal-admins` become portal admins on sign-in, every Keycloak user may sign in (restrict further with `OIDC_ALLOWED_GROUPS`, see [Administration](administration.md)).
+
+```bash
+scripts/keycloak-user.sh add alice alice@example.com --name "Alice Example"           # group ai-portal-users
+scripts/keycloak-user.sh add root  root@example.com  --name "Root Admin" --admin      # portal admin
+scripts/keycloak-user.sh passwd alice      # new one-time password;  also: list, delete <user>, secret
+```
+
+The script talks to the Keycloak admin API with `KEYCLOAK_ADMIN_PASSWORD` from `.env` (or asks for it), prints a generated one-time password once (`--permanent` skips the forced change) and stores nothing. First and last name are required because Keycloak's user profile insists on them. `scripts/keycloak-user.sh secret` pushes `OIDC_CLIENT_SECRET` from `.env` into the Keycloak client after you changed it there (the realm import runs only once); then recreate the stack (`docker compose … up -d`) so the portal picks up the new value. With an internal CA the script reads `OIDC_CA_FILE` from `.env`; `CURL_OPTS` passes extra curl options.
+
+**Groups and applications:** `scripts/keycloak-oidc.sh` maintains the groups (they end up in the `groups` claim the portal reads for `OIDC_ADMIN_GROUPS`, `OIDC_ALLOWED_GROUPS` and group-based knowledge access) and further OIDC applications (Keycloak clients) in the realm:
+
+```bash
+scripts/keycloak-oidc.sh group add engineering
+scripts/keycloak-oidc.sh group join engineering alice          # also: list, members, leave, delete
+scripts/keycloak-oidc.sh app add wiki --name "Team Wiki" --redirect https://wiki.example.com/cb --audience api://wiki
+scripts/keycloak-oidc.sh app add reports-mcp --service-account --sa-group engineering --audience api://reports   # client credentials
+scripts/keycloak-oidc.sh app add spa --public --redirect https://spa.example.com/                                # PKCE only, no secret
+scripts/keycloak-oidc.sh app redirects wiki https://wiki.example.com/cb https://wiki.example.com/cb2            # also: list, show, secret, delete
+```
+
+New applications use the authorization code flow with PKCE (S256) and no password grant; the generated client secret is printed once. A service account (`--service-account`) is for services that call the portal's APIs or that the portal calls with OAuth client credentials (MCP servers, see [Administration](administration.md)); `--sa-group` makes its token carry a group. The built-in clients and the portal's own client `ai-portal` are protected (changes need `--force`), as are the groups `ai-portal-admins` and `ai-portal-users`. The shared connection logic is in `scripts/keycloak-lib.sh`. The portal reaches Keycloak through Traefik under the same public host name (network alias), so OIDC discovery needs a certificate it trusts.
+
+**Certificates:** `TRAEFIK_ACME_EMAIL` + `TRAEFIK_CERTRESOLVER=le` obtains Let's Encrypt certificates (port 80 must be reachable from the internet). For your own certificate put `tls.crt` (full chain) and `tls.key` into `./certs` (`TRAEFIK_CERTS_DIR`, git-ignored; `deploy/traefik/tls.yml` loads them); if an internal CA signed it, also put its `ca.crt` there and set `OIDC_CA_FILE=/certs/ca.crt` so the portal trusts it. Without any of these Traefik serves a self-signed certificate and the portal rejects it (SSO fails).
+
+**Secrets:** the realm file contains only placeholders; the client secret and redirect URL come from `.env` at import time. The import runs once, so changing `OIDC_CLIENT_SECRET` later means changing it in Keycloak too (`scripts/keycloak-user.sh secret`). Keycloak uses its built-in file database in a volume; for production configure a real database (`KC_DB_*`, see the Keycloak documentation). `TRAEFIK_HTTP_PORT` / `TRAEFIK_HTTPS_PORT` change the host ports (keep 80/443 in production: the issuer URL and redirects assume them). Needs Docker Compose 2.24 or newer.
+
+For another provider (Entra ID, ...) set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` in `.env`; they override the Keycloak defaults.
 
 ### Reverse proxy requirements
 

@@ -50,6 +50,17 @@ Known limits: the SSRF check resolves the host once, the connection resolves it 
 
 **Recommended before production:** penetration test, virus scanning for uploads (e.g. ClamAV sidecar), egress restrictions, secret rotation procedure, retention jobs for chats and audit data.
 
+## Traefik and Keycloak (Docker Compose)
+
+`docker-compose.support.yaml` adds a reverse proxy and an identity provider. What to know:
+
+- **Docker socket:** Traefik reads container labels through `/var/run/docker.sock`. The mount is read-only, but access to the Docker API still allows far-reaching queries (and, through a compromised Traefik, more). For production put a socket proxy (e.g. `tecnativa/docker-socket-proxy` with only `CONTAINERS=1`) between Traefik and the socket, or use static Traefik configuration instead of the Docker provider.
+- **Secrets:** `KEYCLOAK_ADMIN_PASSWORD` and `OIDC_CLIENT_SECRET` exist only in `.env` (git-ignored; never commit it). The realm file `deploy/keycloak/ai-portal-realm.json` holds placeholders only and creates no users or passwords. Compose refuses to start without these values.
+- **Admin scripts:** `scripts/keycloak-*.sh` read the admin password from the environment, `.env` or a prompt, send it and the token via stdin and a private temporary file (never as command-line arguments) and delete that file on exit. Generated passwords and client secrets are printed once and stored nowhere. Initial user passwords are one-time (forced change) unless `--permanent` is used.
+- **Keycloak data:** the compose setup uses Keycloak's built-in file database in a volume, without high availability; use a real database and backups in production. Keep Keycloak behind HTTPS only (the compose setup redirects HTTP and sets the public host name, so issuer and redirect URIs are HTTPS).
+- **Certificates:** Traefik's fallback certificate is self-signed; the portal then refuses the issuer (SSO fails by design). Never switch certificate checks off; use Let's Encrypt or your own CA (`OIDC_CA_FILE`).
+- **Clients created by the scripts** use the authorization code flow with PKCE, no password grant and exact redirect URIs; the built-in clients and the portal's client are protected against accidental changes.
+
 ## Audit events
 
 Each event is written to the `audit_log` table and as a JSON line with `"audit": true` to stdout. Audit entries are always in English, regardless of the language selected in the UI (failure reasons and error messages are translated before they are stored); entries written by earlier versions are converted once on start. Every entry has: timestamp, user ID and name, action, target type and ID, success, client IP (from `X-Forwarded-For` behind the ingress), user agent and details.

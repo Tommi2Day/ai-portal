@@ -108,6 +108,8 @@ Group names are stored as the CN (`CN=IT-Team,OU=…` → `IT-Team`) and used fo
 
 ## OIDC (Azure AD / Entra ID, Keycloak, …)
 
+With Docker Compose, `docker-compose.yml` already points `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_DISPLAY_NAME` / `OIDC_ADMIN_GROUPS` at the Keycloak realm of `docker-compose.support.yaml` (issuer `https://<KEYCLOAK_HOST>/realms/ai-portal`, client `ai-portal`, admins = group `ai-portal-admins`): you only set `OIDC_ENABLED=true`, `KEYCLOAK_HOST` and `OIDC_CLIENT_SECRET` in `.env`, see [Installation](installation.md#docker-compose-with-traefik-and-keycloak). Variables you set in `.env` override these defaults. The table below applies to any provider.
+
 | Variable | Default | Description |
 | --- | --- | --- |
 | `OIDC_ENABLED` | `false` | Enable SSO |
