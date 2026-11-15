@@ -5,6 +5,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Release job summaries:** the release run lists every pushed image reference (Docker Hub and GitHub Container Registry) with its digest, and the Helm chart job shows the pushed chart reference, digest and an install command.
+
 ## [1.0.0] - 2026-11-15
 
 First feature complete release: OAuth2/SSO for the GUI and `/mcp`, OAuth client credentials for MCP servers, central secret masking, web and Confluence page-tree knowledge sources with automatic/manual/webhook updates, source settings, admin notes, and ESLint plus reworked CI.
