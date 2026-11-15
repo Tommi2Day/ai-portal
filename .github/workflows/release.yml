@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes the image tommi2day/ai-portal on Docker Hub and creates the GitHub release:
+# Publishes the image tommi2day/ai-portal on Docker Hub, mirrors it to ghcr.io/tommi2day/ai-portal and creates the GitHub release:
 #   git tag 1.2.3 && git push origin 1.2.3     → :1.2.3 :1.2 :1 :latest :sha-<short>, release 1.2.3
 #   Actions → Release → Run workflow (tag)      → bumps the versions and the CHANGELOG on main first, then the same,
 #                                                 and creates the tag
@@ -24,6 +24,7 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   IMAGE: tommi2day/ai-portal
+  GHCR_IMAGE: ghcr.io/tommi2day/ai-portal
 
 jobs:
   bump-version:
@@ -49,13 +50,14 @@ jobs:
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must look like 1.2.3"; exit 1; }
           if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" > /dev/null; then echo "tag $VERSION already exists"; exit 1; fi
 
-      - name: Update package.json files, Kubernetes image tag and CHANGELOG
+      - name: Update package.json files, Kubernetes image tag, Helm chart and CHANGELOG
         env:
           VERSION: ${{ inputs.tag }}
         run: |
           (cd server && npm version "$VERSION" --no-git-tag-version --allow-same-version)
           (cd web && npm version "$VERSION" --no-git-tag-version --allow-same-version)
           sed -i -E "s/^(\s*newTag: ).*/\1\"$VERSION\"/" deploy/k8s/kustomization.yaml
+          sed -i -E "s/^version: .*/version: $VERSION/; s/^appVersion: .*/appVersion: \"$VERSION\"/" helm/ai-portal/Chart.yaml
           # "## [Unreleased]" becomes the new version, followed by a fresh empty Unreleased section
           if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
             sed -i "0,/^## \[Unreleased\]/s//## [Unreleased]\n\n## [$VERSION] - $(date -u +%F)/" CHANGELOG.md
@@ -67,7 +69,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add server/package.json server/package-lock.json web/package.json web/package-lock.json deploy/k8s/kustomization.yaml CHANGELOG.md
+          git add server/package.json server/package-lock.json web/package.json web/package-lock.json deploy/k8s/kustomization.yaml helm/ai-portal/Chart.yaml CHANGELOG.md
           git diff --cached --quiet || git commit -m "chore: bump version to $VERSION"
           git push
 
@@ -135,6 +137,9 @@ jobs:
     name: Build & Push
     runs-on: ubuntu-latest
     needs: [lint-and-test, integration]
+    permissions:
+      contents: read
+      packages: write
     # bump-version is skipped on tag push; without an explicit status check the
     # implicit success() would skip this job because of that skipped ancestor.
     if: always() && !failure() && !cancelled()
@@ -153,11 +158,20 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.IMAGE }}
+          images: |
+            ${{ env.IMAGE }}
+            ${{ env.GHCR_IMAGE }}
           tags: |
             # git tag or release → :1.2.3  :1.2  :1  :latest
             type=semver,pattern={{version}}
@@ -179,10 +193,35 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # GitHub has no API to change a package's visibility: a new ghcr.io package starts private and is made public once
+      # (profile -> Packages -> ai-portal -> Package settings -> Change visibility). This step fails until that is done.
+      - name: Verify the GHCR image is public
+        run: |
+          repo="${GHCR_IMAGE#ghcr.io/}"
+          tag=$(echo "${{ steps.meta.outputs.version }}" | head -n1)
+          token=$(curl -fsS "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r .token || true)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${token}"             -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json'             "https://ghcr.io/v2/${repo}/manifests/${tag}")
+          if [ "$code" != "200" ]; then
+            echo "::error::${GHCR_IMAGE}:${tag} is not publicly pullable (HTTP ${code}). Make the package public: https://github.com/users/${GITHUB_REPOSITORY_OWNER}/packages/container/ai-portal/settings"
+            exit 1
+          fi
+          echo "${GHCR_IMAGE}:${tag} is public"
+
+  helm:
+    name: Helm Chart
+    needs: [lint-and-test, integration]
+    if: always() && !failure() && !cancelled()
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/helm-publish.yml
+    with:
+      ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [docker]
+    needs: [docker, helm]
     if: always() && !failure() && !cancelled() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     permissions:
       contents: write
