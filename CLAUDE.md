@@ -20,6 +20,7 @@ server/        Node.js 22 · Express 5 · Drizzle ORM/PostgreSQL · Vercel AI SD
   test/            Vitest unit/API tests; test/integration/ real-stack integration tests (separate config)
 web/           React 19 · Vite · TypeScript (no React Router — App.tsx switches views by state)
 deploy/k8s/    Kubernetes manifests (kustomize)
+helm/ai-portal/ Helm chart (values.yaml documents all options); docker-compose.traefik.yml = optional Traefik proxy override
 docs/          English documentation (README.de.md is the German README)
 ```
 
@@ -58,7 +59,7 @@ cd web && npm run build        # tsc --noEmit && vite build
 # 2. cd server && npm run db:generate   # writes SQL into server/drizzle/
 ```
 
-Workflows (`.github/workflows/`): `ci.yml` runs per package `npm audit --audit-level=high`, `npm run lint`, i18n check (web only), `npm test -- --coverage` (uploaded to Codecov), `npm run build`, then a separate integration job and a Docker image build/smoke-test job. `release.yml` (tag `X.Y.Z` or manual start with a version) runs lint + unit + integration tests, pushes `tommi2day/ai-portal` to Docker Hub and creates the GitHub release (notes = CHANGELOG section `## [X.Y.Z]`; a manual start also bumps the package.json files, `deploy/k8s/kustomization.yaml` and rolls the CHANGELOG's Unreleased section). `dependabot-automerge.yml` + `dependabot.yml` auto-merge non-major dependency updates, `dockerhub-description.yml` publishes `DOCKERHUB.md`. The Node major is set in ci.yml, release.yml and the Dockerfile — bump all of them by hand (Dependabot ignores Node majors).
+Workflows (`.github/workflows/`): `ci.yml` runs per package `npm audit --audit-level=high`, `npm run lint`, i18n check (web only), `npm test -- --coverage` (uploaded to Codecov), `npm run build`, then a separate integration job and a Docker image build/smoke-test job. `release.yml` (tag `X.Y.Z` or manual start with a version) runs lint + unit + integration tests, pushes `tommi2day/ai-portal` to Docker Hub and `ghcr.io/tommi2day/ai-portal` (a final step fails the run if the GHCR package is not public — visibility can only be set once by hand in the package settings, there is no API) and creates the GitHub release (notes = CHANGELOG section `## [X.Y.Z]`; a manual start also bumps the package.json files, `deploy/k8s/kustomization.yaml` and rolls the CHANGELOG's Unreleased section). `helm-publish.yml` (called by release.yml: lints, packages and pushes the chart to `oci://ghcr.io/<owner>/charts`; a manual release also bumps `helm/ai-portal/Chart.yaml`), `dependabot-automerge.yml` + `dependabot.yml` auto-merge non-major dependency updates, `dockerhub-description.yml` publishes `DOCKERHUB.md`. The Node major is set in ci.yml, release.yml and the Dockerfile — bump all of them by hand (Dependabot ignores Node majors).
 
 ## Architecture notes
 

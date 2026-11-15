@@ -2,7 +2,7 @@
 
 Self-hosted web application for the internal use of generative AI: a chat interface in the style of Claude or Google's AI Mode with user management, centrally managed AI providers, per-user MCP servers, file uploads, an internal knowledge base (RAG) and a complete audit log. One stateless Node image plus PostgreSQL (pgvector).
 
-**Source, full documentation, Kubernetes manifests:** [github.com/Tommi2Day/ai-portal](https://github.com/Tommi2Day/ai-portal) · **Changelog:** [CHANGELOG.md](https://github.com/Tommi2Day/ai-portal/blob/main/CHANGELOG.md)
+**Source, full documentation, Kubernetes manifests, Helm chart:** [github.com/Tommi2Day/ai-portal](https://github.com/Tommi2Day/ai-portal) · **Changelog:** [CHANGELOG.md](https://github.com/Tommi2Day/ai-portal/blob/main/CHANGELOG.md)
 
 ## Features
 

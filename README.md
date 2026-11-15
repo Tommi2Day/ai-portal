@@ -25,7 +25,7 @@ Self-hosted web application for internal use of generative AI: a chat interface 
 - **Admin notes:** a comment column on users, providers, models, collections, sources and SSO assignments for small notes (ticket, owner, expiry); admin-only
 - **Secrets stay secret:** credentials are write-only and masked in logs, audit entries, error texts and the UI (new tokens stay hidden until revealed)
 - **Branding:** own name, logo and colors via environment variables, no rebuild ([configuration](docs/configuration.md#branding))
-- **Runs anywhere containers run:** one stateless image + PostgreSQL; Docker Compose and Kubernetes manifests included
+- **Runs anywhere containers run:** one stateless image + PostgreSQL; Docker Compose (optionally behind Traefik), Kubernetes manifests and a Helm chart included
 
 The user interface is available in **German and English** (switch in the top bar and on the sign-in page; the browser language is the default). Server messages follow the selected language.
 
@@ -65,6 +65,7 @@ server/        Node.js 22 · Express 5 · Drizzle/PostgreSQL · Vercel AI SDK ·
   drizzle/         SQL migrations (applied on start)
 web/           React 19 · Vite
 deploy/k8s/    Kubernetes manifests (kustomize)
+helm/ai-portal/ Helm chart (published to oci://ghcr.io/tommi2day/charts)
 docs/          English documentation
 ```
 
@@ -88,7 +89,7 @@ Users add their own MCP servers under **MCP-Server**.
 
 | Document | Content |
 | --- | --- |
-| [Installation & operations](docs/installation.md) | Docker Compose, Kubernetes, PostgreSQL/pgvector, file shares, backups, upgrades, monitoring |
+| [Installation & operations](docs/installation.md) | Docker Compose, Traefik, Kubernetes, Helm, PostgreSQL/pgvector, file shares, backups, upgrades, monitoring |
 | [Configuration reference](docs/configuration.md) | Every environment variable with default and meaning |
 | [Connecting LLM providers](docs/llm-providers.md) | Anthropic, AWS Bedrock, GitHub Models, OpenAI-compatible endpoints (Azure OpenAI, Ollama, vLLM, LiteLLM): credentials, IAM, base URLs, proxy, data flow, troubleshooting |
 | [Administration guide](docs/administration.md) | Users and groups, sign-in methods, providers and models, knowledge base, audit log |
@@ -130,7 +131,8 @@ GitHub Actions (`.github/workflows/`):
 | Workflow | What it does |
 | --- | --- |
 | `ci.yml` | On every push and pull request: **Lint & Test** for `server/` and `web/` (audit, ESLint, translation check, tests with coverage uploaded to Codecov, build), then the **integration tests** against the Docker stack (PostgreSQL/pgvector, Keycloak, pg-mcp-server with and without OAuth, Oracle + oracle-mcp-server) and a **Docker image build** with a start-up smoke test |
-| `release.yml` | Publishes the image [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal) on Docker Hub and creates the GitHub release after lint, unit and integration tests. Push a tag `X.Y.Z` (→ `:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:sha-<short>`), or start the workflow manually with a version: it validates the version, sets it in both `package.json` files and `deploy/k8s/kustomization.yaml`, rolls `## [Unreleased]` of the CHANGELOG into `## [X.Y.Z]`, commits to `main` and creates the tag. The release notes are that CHANGELOG section plus the generated list of pull requests |
+| `release.yml` | Publishes the image [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal) on Docker Hub, mirrors it to `ghcr.io/tommi2day/ai-portal` and creates the GitHub release after lint, unit and integration tests. Push a tag `X.Y.Z` (→ `:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:sha-<short>`), or start the workflow manually with a version: it validates the version, sets it in both `package.json` files and `deploy/k8s/kustomization.yaml`, rolls `## [Unreleased]` of the CHANGELOG into `## [X.Y.Z]`, commits to `main` and creates the tag. The release notes are that CHANGELOG section plus the generated list of pull requests |
+| `helm-publish.yml` | Lints and packages `helm/ai-portal` and pushes it to `oci://ghcr.io/<owner>/charts`. Called by `release.yml` after the tests; can also be started manually with a tag to re-publish a chart. The package must be made public once in the GitHub package settings |
 | `dependabot-automerge.yml` | Dependabot (`.github/dependabot.yml`, monthly: npm for `server/` and `web/`, Docker, Actions) pull requests are updated and set to auto-merge once the required checks pass; major version bumps are left for manual review |
 | `dockerhub-description.yml` | Pushes `DOCKERHUB.md` (the compact README) and the short description to Docker Hub when it changes on `main` |
 

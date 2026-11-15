@@ -16,6 +16,7 @@ Interne Web-Anwendung für KI-Chat mit Benutzerverwaltung (lokal, LDAP/AD, OIDC/
 server/   Node.js 22 · Express 5 · Drizzle/PostgreSQL · Vercel AI SDK · MCP-SDK
 web/      React 19 · Vite
 deploy/   Kubernetes-Manifeste (kustomize)
+helm/     Helm-Chart (veröffentlicht unter oci://ghcr.io/tommi2day/charts)
 ```
 
 ## Screenshots
@@ -89,7 +90,8 @@ GitHub Actions (`.github/workflows/`):
 | Workflow | Aufgabe |
 | --- | --- |
 | `ci.yml` | Bei jedem Push und Pull Request: **Lint & Test** für `server/` und `web/` (Audit, ESLint, Übersetzungsprüfung, Tests mit Coverage-Upload zu Codecov, Build), danach die **Integrationstests** gegen den Docker-Stack (PostgreSQL/pgvector, Keycloak, pg-mcp-server mit und ohne OAuth, Oracle + oracle-mcp-server) und ein **Docker-Image-Build** mit Start-Test |
-| `release.yml` | Veröffentlicht das Image [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal) auf Docker Hub und legt das GitHub-Release an, nach Lint, Unit- und Integrationstests. Tag `X.Y.Z` pushen (→ `:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:sha-<kurz>`) oder den Workflow manuell mit einer Version starten: Er prüft die Version, setzt sie in beiden `package.json` und in `deploy/k8s/kustomization.yaml`, macht aus `## [Unreleased]` des CHANGELOG den Abschnitt `## [X.Y.Z]`, committet auf `main` und legt den Tag an. Die Release-Notes sind dieser CHANGELOG-Abschnitt plus die erzeugte Liste der Pull Requests |
+| `release.yml` | Veröffentlicht das Image [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal) auf Docker Hub, spiegelt es nach `ghcr.io/tommi2day/ai-portal` und legt das GitHub-Release an, nach Lint, Unit- und Integrationstests. Tag `X.Y.Z` pushen (→ `:X.Y.Z`, `:X.Y`, `:X`, `:latest`, `:sha-<kurz>`) oder den Workflow manuell mit einer Version starten: Er prüft die Version, setzt sie in beiden `package.json` und in `deploy/k8s/kustomization.yaml`, macht aus `## [Unreleased]` des CHANGELOG den Abschnitt `## [X.Y.Z]`, committet auf `main` und legt den Tag an. Die Release-Notes sind dieser CHANGELOG-Abschnitt plus die erzeugte Liste der Pull Requests |
+| `helm-publish.yml` | Prüft und paketiert `helm/ai-portal` und lädt es nach `oci://ghcr.io/<owner>/charts` hoch. Wird von `release.yml` nach den Tests aufgerufen, lässt sich auch manuell mit einem Tag starten. Das Paket muss einmalig in den GitHub-Paketeinstellungen öffentlich gestellt werden |
 | `dependabot-automerge.yml` | Pull Requests von Dependabot (`.github/dependabot.yml`, monatlich: npm für `server/` und `web/`, Docker, Actions) werden aktualisiert und auf Auto-Merge gesetzt, sobald die Pflicht-Checks grün sind; Major-Updates bleiben der manuellen Prüfung vorbehalten |
 | `dockerhub-description.yml` | Überträgt `DOCKERHUB.md` (das kompakte README) und die Kurzbeschreibung nach Docker Hub, wenn sie sich auf `main` ändern |
 
@@ -111,6 +113,26 @@ kubectl apply -k deploy/k8s
 ```
 
 Postgres: vorhandene Datenbank nutzen oder `postgres-cnpg.yaml` (CloudNativePG) aktivieren. Die App ist zustandslos und skaliert horizontal (HPA 2–6 Pods).
+
+### Helm
+
+Das Chart `helm/ai-portal` wird mit jedem Release nach `oci://ghcr.io/tommi2day/charts` veröffentlicht. `SESSION_SECRET`, `ENCRYPTION_KEY` und das Admin-Passwort werden beim ersten Install erzeugt und bei Upgrades beibehalten (eigenes Secret: `existingSecret`).
+
+```bash
+helm install ai-portal oci://ghcr.io/tommi2day/charts/ai-portal --version 1.0.0 -n ai-portal --create-namespace   --set config.PUBLIC_URL=https://ai.example.com   --set secret.databaseUrl='postgres://aiportal:...@db:5432/aiportal'   --set ingress.enabled=true --set ingress.hosts[0].host=ai.example.com --set ingress.hosts[0].paths[0].path=/
+# PostgreSQL + pgvector über den CloudNativePG-Operator: --set cnpg.enabled=true
+```
+
+**Traefik** statt nginx: `--set ingress.enabled=false --set traefik.enabled=true --set traefik.hosts[0]=ai.example.com --set traefik.tls.certResolver=letsencrypt` erzeugt eine `IngressRoute` samt HTTP→HTTPS-Weiterleitung. Alle Optionen: `helm/ai-portal/values.yaml`.
+
+## Docker Compose mit Traefik
+
+```bash
+# .env: PORTAL_HOST=ai.example.com, PUBLIC_URL=https://ai.example.com, COOKIE_SECURE=true
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d
+```
+
+Traefik terminiert TLS und leitet HTTP auf HTTPS um; der Portal-Port 8080 wird nicht mehr veröffentlicht. Für Let's Encrypt zusätzlich `TRAEFIK_ACME_EMAIL` und `TRAEFIK_CERTRESOLVER=le` setzen, sonst nutzt Traefik sein selbstsigniertes Standardzertifikat. Details: [Installation](docs/installation.md).
 
 **ENCRYPTION_KEY sicher aufbewahren** – ohne ihn sind gespeicherte API-Schlüssel und MCP-Zugangsdaten nicht mehr lesbar.
 

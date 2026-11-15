@@ -46,9 +46,30 @@ The compose file starts `pgvector/pgvector:pg16` and the app on port 8080. File 
 
 ### Using the published image
 
-Instead of building, use the image from Docker Hub: [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal). Tags: `X.Y.Z` (exact release), `X.Y` and `X` (latest of that line), `latest`, and `sha-<short>` for every build. **Pin a version in production** (`image: tommi2day/ai-portal:X.Y.Z`) and read the [CHANGELOG](../CHANGELOG.md) before upgrading. A compose file with the published image and a database is in the [Docker Hub description](../DOCKERHUB.md#quick-start).
+Instead of building, use the image from Docker Hub, [`tommi2day/ai-portal`](https://hub.docker.com/r/tommi2day/ai-portal), or its mirror on GitHub Container Registry, `ghcr.io/tommi2day/ai-portal` (same tags, no pull rate limit). Tags: `X.Y.Z` (exact release), `X.Y` and `X` (latest of that line), `latest`, and `sha-<short>` for every build. **Pin a version in production** (`image: tommi2day/ai-portal:X.Y.Z`) and read the [CHANGELOG](../CHANGELOG.md) before upgrading. A compose file with the published image and a database is in the [Docker Hub description](../DOCKERHUB.md#quick-start).
 
 ## Kubernetes
+
+### Helm
+
+The chart in `helm/ai-portal` is published to `oci://ghcr.io/tommi2day/charts` with every release. Secrets (`SESSION_SECRET`, `ENCRYPTION_KEY`, admin password) are generated on first install and kept on upgrade; use `existingSecret` to manage them yourself.
+
+```bash
+helm install ai-portal oci://ghcr.io/tommi2day/charts/ai-portal --version 1.0.0 -n ai-portal --create-namespace   --set config.PUBLIC_URL=https://ai.example.com   --set secret.databaseUrl='postgres://aiportal:…@db:5432/aiportal'   --set ingress.enabled=true --set ingress.hosts[0].host=ai.example.com --set ingress.hosts[0].paths[0].path=/
+# or let the CloudNativePG operator provide PostgreSQL + pgvector: --set cnpg.enabled=true
+```
+
+To use **Traefik** instead of an nginx ingress, render a Traefik `IngressRoute` (Traefik v3 or v2 with its CRDs installed; set `traefik.apiVersion: traefik.containo.us/v1alpha1` for v2):
+
+```bash
+helm install ai-portal … --set ingress.enabled=false   --set traefik.enabled=true --set traefik.hosts[0]=ai.example.com   --set traefik.tls.certResolver=letsencrypt      # or traefik.tls.secretName=<tls secret>
+```
+
+The route listens on the `websecure` entry point and a second route on `web` redirects to HTTPS (`traefik.redirectHttp`). Traefik neither buffers streaming answers nor limits the body size, so the nginx annotations are not needed. A plain `Ingress` with `ingress.className=traefik` also works.
+
+All options are documented in `helm/ai-portal/values.yaml`. Back up `ENCRYPTION_KEY` from the generated secret.
+
+### Kustomize
 
 Manifests live in `deploy/k8s/` and are assembled with kustomize.
 
@@ -75,6 +96,17 @@ kubectl apply -k deploy/k8s
 | `postgres-cnpg.yaml` | Optional PostgreSQL cluster via the CloudNativePG operator, including `CREATE EXTENSION vector` |
 
 Other ingress controllers need the equivalent of: no response buffering on `/api/chats/*/messages`, read timeout of several minutes, request body ≥ upload limit.
+
+## Docker Compose with Traefik
+
+`docker-compose.traefik.yml` puts a [Traefik](https://traefik.io) reverse proxy in front of the portal (TLS termination, HTTP → HTTPS redirect, no published portal port):
+
+```bash
+# .env: PORTAL_HOST=ai.example.com, PUBLIC_URL=https://ai.example.com, COOKIE_SECURE=true
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d
+```
+
+For a Let's Encrypt certificate (needs port 80 reachable from the internet) also set `TRAEFIK_ACME_EMAIL` and `TRAEFIK_CERTRESOLVER=le`; without them Traefik serves its built-in self-signed certificate. `TRAEFIK_HTTP_PORT` / `TRAEFIK_HTTPS_PORT` change the host ports (the HTTP → HTTPS redirect then points to port 443, so keep the defaults in production). Needs Docker Compose 2.24 or newer.
 
 ### Reverse proxy requirements
 

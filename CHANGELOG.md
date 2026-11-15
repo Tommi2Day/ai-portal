@@ -25,6 +25,10 @@ First feature complete release: OAuth2/SSO for the GUI and `/mcp`, OAuth client 
   - ESLint with typescript-eslint in `server/` and `web/` (plus the `react-hooks` rules in the UI), `npm run lint` / `npm run lint:fix`, warnings are fatal.
   - GitHub workflows reworked as in pg-mcp-server: CI *Lint & Test* → *Integration* / *Docker image build*; the release workflow lints, validates the version, rolls the CHANGELOG on a manual start, creates the tag and the GitHub release (notes from the CHANGELOG); Dependabot configuration with an automerge workflow; `DOCKERHUB.md` published as the Docker Hub description.
   - Integration tests with real servers: Keycloak (realm with clients and users), pg-mcp-server with and without OAuth, a full SSO sign-in round trip, the portal's own `/mcp` with Keycloak tokens, and the web source against a real web server.
+- **Deployment**
+  - **Helm chart** `helm/ai-portal` (config map, generated or existing secret, optional CloudNativePG database, ingress, HPA, PDB, network policy, extra volumes/env); published to `oci://ghcr.io/<owner>/charts` by the new `helm-publish.yml`, which the release workflow calls (a manual release also bumps `Chart.yaml`).
+  - **GitHub Container Registry mirror** `ghcr.io/tommi2day/ai-portal` with the same tags; the release and chart workflows verify with an anonymous pull that the packages are public (GitHub has no API to set visibility, so the first release needs a one-time manual *Change visibility* in the package settings).
+  - **Traefik as HTTP proxy:** `docker-compose.traefik.yml` (TLS, optional Let's Encrypt, HTTP → HTTPS redirect, no published portal port) and `traefik.*` chart values that render a Traefik `IngressRoute` plus redirect; documented in `docs/installation.md`.
 
 ### Changed
 - CI job names changed (*Lint & Test (server|web)*, *Integration*, *Docker image build*); update required status checks in branch protection.
