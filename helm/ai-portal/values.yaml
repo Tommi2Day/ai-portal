@@ -1,0 +1,134 @@
+# Default values for ai-portal. The image is stateless; PostgreSQL (with pgvector) is required.
+
+replicaCount: 2
+
+image:
+  repository: tommi2day/ai-portal
+  # defaults to the appVersion of the chart
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Non-secret settings -> ConfigMap (see docs/configuration.md). Every key becomes an environment variable.
+config:
+  PUBLIC_URL: https://ai.example.com
+  COOKIE_SECURE: "true"
+  LOG_LEVEL: info
+  UPLOAD_MAX_MB: "20"
+  MAX_TOOL_STEPS: "8"
+  AUDIT_LOG_PROMPTS: "false"
+  MCP_ALLOW_PRIVATE_NETWORKS: "true"
+  AUTH_LOCAL_ENABLED: "true"
+  LDAP_ENABLED: "false"
+  OIDC_ENABLED: "false"
+  KNOWLEDGE_ENABLED: "true"
+  KNOWLEDGE_WORKER: "true"
+  KNOWLEDGE_FS_ROOT: /data/shares
+  KNOWLEDGE_MAX_FILE_MB: "50"
+  # LDAP_URL: ldaps://dc01.example.com:636
+  # OIDC_ISSUER: https://login.microsoftonline.com/<tenant-id>/v2.0
+
+# Secrets. Either let the chart create the Secret, or reference an existing one with existingSecret
+# (it must hold DATABASE_URL (unless cnpg.enabled), SESSION_SECRET, ENCRYPTION_KEY and optionally the others).
+existingSecret: ""
+secret:
+  # e.g. postgres://aiportal:pw@db:5432/aiportal (the database needs the pgvector extension). Ignored when cnpg.enabled=true.
+  databaseUrl: ""
+  # empty = generated on first install and kept on upgrade (uses helm lookup, so not with plain `helm template`)
+  sessionSecret: ""
+  # base64 of 32 random bytes; empty = generated like sessionSecret.
+  # LOSING IT makes stored provider credentials unreadable - back it up.
+  encryptionKey: ""
+  bootstrapAdminPassword: ""
+  # further secret environment variables, e.g. LDAP_BIND_DN, LDAP_BIND_PASSWORD, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET
+  extra: {}
+
+# Optional PostgreSQL via the CloudNativePG operator (must be installed). Supplies DATABASE_URL automatically.
+cnpg:
+  enabled: false
+  instances: 2
+  storageSize: 20Gi
+  storageClass: ""
+  database: aiportal
+  owner: aiportal
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-body-size: 25m
+  hosts:
+    - host: ai.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: ai-portal-tls
+  #    hosts: [ai.example.com]
+
+# Traefik as the HTTP proxy: a Traefik IngressRoute instead of (or besides) the standard Ingress.
+# Needs Traefik with its CRDs installed. Streaming answers are not buffered by Traefik. Set ingress.enabled=false when using this.
+# (A plain Ingress with ingress.className=traefik also works; then drop the nginx annotations.)
+traefik:
+  enabled: false
+  # traefik.io/v1alpha1 for Traefik v3, traefik.containo.us/v1alpha1 for v2
+  apiVersion: traefik.io/v1alpha1
+  entryPoints: [websecure]
+  hosts:
+    - ai.example.com
+  # extra middlewares for the route, e.g. [{ name: my-headers, namespace: traefik }]
+  middlewares: []
+  tls:
+    # true = TLS with Traefik's default certificate; secretName / certResolver imply TLS
+    enabled: true
+    secretName: ""
+    certResolver: ""
+  # additional route on the plain HTTP entry point that redirects to HTTPS
+  redirectHttp:
+    enabled: true
+    entryPoints: [web]
+  annotations: {}
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 1Gi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: false
+  # ingress is allowed only from the namespace with this kubernetes.io/metadata.name
+  ingressNamespace: ingress-nginx
+
+# Branding / knowledge shares: mount extra volumes (see docs/installation.md)
+extraVolumes: []
+#  - name: it-share
+#    persistentVolumeClaim: { claimName: it-share, readOnly: true }
+extraVolumeMounts: []
+#  - { name: it-share, mountPath: /data/shares/it, readOnly: true }
+
+extraEnv: []
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []

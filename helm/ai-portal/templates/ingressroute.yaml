@@ -1,0 +1,74 @@
+{{- if .Values.traefik.enabled }}
+{{- $fullname := include "ai-portal.fullname" . }}
+{{- $t := .Values.traefik }}
+{{- $hosts := list }}
+{{- range $t.hosts }}{{- $hosts = append $hosts (printf "Host(`%s`)" .) }}{{- end }}
+{{- $rule := join " || " $hosts }}
+apiVersion: {{ $t.apiVersion }}
+kind: IngressRoute
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "ai-portal.labels" . | nindent 4 }}
+  {{- with $t.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    {{- toYaml $t.entryPoints | nindent 4 }}
+  routes:
+    - kind: Rule
+      match: {{ $rule }}
+      {{- with $t.middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      services:
+        - name: {{ $fullname }}
+          port: http
+  {{- if or $t.tls.enabled $t.tls.secretName $t.tls.certResolver }}
+  {{- if or $t.tls.secretName $t.tls.certResolver }}
+  tls:
+    {{- with $t.tls.secretName }}
+    secretName: {{ . }}
+    {{- end }}
+    {{- with $t.tls.certResolver }}
+    certResolver: {{ . }}
+    {{- end }}
+  {{- else }}
+  tls: {}
+  {{- end }}
+  {{- end }}
+{{- if $t.redirectHttp.enabled }}
+---
+apiVersion: {{ $t.apiVersion }}
+kind: Middleware
+metadata:
+  name: {{ $fullname }}-https
+  labels:
+    {{- include "ai-portal.labels" . | nindent 4 }}
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: {{ $t.apiVersion }}
+kind: IngressRoute
+metadata:
+  name: {{ $fullname }}-http
+  labels:
+    {{- include "ai-portal.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $t.redirectHttp.entryPoints | nindent 4 }}
+  routes:
+    - kind: Rule
+      match: {{ $rule }}
+      middlewares:
+        - name: {{ $fullname }}-https
+      services:
+        - name: {{ $fullname }}
+          port: http
+{{- end }}
+{{- end }}

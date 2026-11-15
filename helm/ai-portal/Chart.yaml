@@ -1,0 +1,12 @@
+apiVersion: v2
+name: ai-portal
+description: Self-hosted AI Portal – chat, user management (local/LDAP/OIDC), AI providers, MCP servers and an internal knowledge base (RAG).
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - ai
+  - chat
+  - mcp
+  - rag
+home: https://github.com/tommi2day/ai-portal

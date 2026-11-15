@@ -1,0 +1,20 @@
+AI Portal {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+{{- if .Values.ingress.enabled }}
+
+URL: {{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ (index .Values.ingress.hosts 0).host }}   (PUBLIC_URL is {{ .Values.config.PUBLIC_URL }})
+{{- else }}
+
+Port-forward for a first look:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "ai-portal.fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}
+{{- if not .Values.existingSecret }}
+
+Bootstrap admin password (user "admin"):
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "ai-portal.secretName" . }} -o jsonpath='{.data.BOOTSTRAP_ADMIN_PASSWORD}' | base64 -d
+Back up ENCRYPTION_KEY from the same secret - without it stored provider credentials are unreadable.
+{{- end }}
+{{- if and (not .Values.cnpg.enabled) (not .Values.existingSecret) (not .Values.secret.databaseUrl) }}
+
+WARNING: no database configured. Set secret.databaseUrl, cnpg.enabled=true or existingSecret (with DATABASE_URL).
+{{- end }}
