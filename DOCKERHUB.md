@@ -82,4 +82,4 @@ Provider keys, MCP headers and source credentials are encrypted at rest and writ
 
 ## License
 
-MIT
+Apache License 2.0
