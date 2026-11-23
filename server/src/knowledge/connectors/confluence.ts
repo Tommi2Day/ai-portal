@@ -95,6 +95,18 @@ export function confluenceConnector(cfg: ConfluenceConfig, sec: ConfluenceSecret
     for await (const p of cloudPages<CloudPage>(`/api/v2/spaces/${sp.results[0].id}/pages?limit=100&status=current${depth}`)) yield cloudRef(p);
   }
 
+  /** Direct child pages of a page (`pid` is URL-encoded). */
+  async function* children(pid: string): AsyncGenerator<DocRef> {
+    if (cfg.deployment === 'server') {
+      for await (const p of serverPages(`/rest/api/content/${pid}/child/page?expand=version`)) yield serverRef(p);
+      return;
+    }
+    // the children listing has no version: read each child page for change detection
+    for await (const c of cloudPages<{ id: string }>(`/api/v2/pages/${pid}/children?limit=100`)) {
+      yield cloudRef(await get<CloudPage>(`/api/v2/pages/${encodeURIComponent(c.id)}`));
+    }
+  }
+
   /** One page and, breadth first, its descendants (limited by includeSubpages / maxDepth). */
   async function* tree(rootId: string): AsyncGenerator<DocRef> {
     const id = encodeURIComponent(rootId);
@@ -108,16 +120,7 @@ export function confluenceConnector(cfg: ConfluenceConfig, sec: ConfluenceSecret
     for (let depth = 1; depth <= limit && level.length; depth++) {
       const nextLevel: string[] = [];
       for (const parent of level) {
-        const pid = encodeURIComponent(parent);
-        if (cfg.deployment === 'server') {
-          for await (const p of serverPages(`/rest/api/content/${pid}/child/page?expand=version`)) { nextLevel.push(p.id); yield serverRef(p); }
-        } else {
-          // the children listing has no version: read each child page for change detection
-          for await (const c of cloudPages<{ id: string }>(`/api/v2/pages/${pid}/children?limit=100`)) {
-            nextLevel.push(c.id);
-            yield cloudRef(await get<CloudPage>(`/api/v2/pages/${encodeURIComponent(c.id)}`));
-          }
-        }
+        for await (const d of children(encodeURIComponent(parent))) { nextLevel.push(d.externalId); yield d; }
       }
       level = nextLevel;
     }
